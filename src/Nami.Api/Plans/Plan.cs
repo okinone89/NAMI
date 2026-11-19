@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Nami.Api.Plans;
 
 public sealed record Plan(string Id, string Name, long Revision)
@@ -30,7 +32,9 @@ public sealed record PlanInterface(
     string ComponentId,
     string Name,
     string? NetworkId = null,
-    string? Ipv4 = null);
+    string? Ipv4 = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    InterfaceProtocolProfiles? ProtocolProfiles = null);
 
 public sealed record PlanLink(
     string Id,
