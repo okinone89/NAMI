@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type MouseEvent,
 } from "react"
 import { IconAlertTriangle, IconNetwork, IconSchema } from "@tabler/icons-react"
 import { DiagramComponentLabel } from "@/components/diagram-component-label"
@@ -45,10 +46,19 @@ export function DiagramView({
   savePlan,
 }: Props) {
   const [searchQuery, setSearchQuery] = useState("")
-  const [focusedNetworkId, setFocusedNetworkId] = useState<string | null>(null)
+  const [focusedNetworkId, setFocusedNetworkId] = useState<string | null>(() =>
+    window.matchMedia("(width < 40rem)").matches
+      ? (plan.networks[0]?.id ?? null)
+      : null
+  )
   const [highlightedResult, setHighlightedResult] =
     useState<DiagramSearchResult>()
+  const [movingComponentId, setMovingComponentId] = useState<string>()
+  const movingComponent = canEdit
+    ? plan.components.find(({ id }) => id === movingComponentId)
+    : undefined
   const canvasRef = useRef<HTMLDivElement>(null)
+  const movePrompt = useRef<HTMLDivElement>(null)
   const highlightedNode = useRef<HTMLButtonElement>(null)
   const searchResults = useMemo(
     () => searchDiagram(plan, searchQuery),
@@ -75,10 +85,9 @@ export function DiagramView({
     () => scopedDiagram(plan, savedLayout, focusedNetworkId),
     [plan, savedLayout, focusedNetworkId]
   )
-  const { componentBoxes, networkBoxes, guests, topLevel, enclosures } =
-    scope.layout
-  const { bind, preview, error } = useTopologyDrag(
-    canEdit,
+  const { componentBoxes, networkBoxes, guests, topLevel } = scope.layout
+  const { bind, place, preview, saving, error } = useTopologyDrag(
+    canEdit && !movingComponent,
     async ({ id, kind, position }) => {
       if (kind === "network") {
         await savePlan({
@@ -146,6 +155,10 @@ export function DiagramView({
     node?.focus({ preventScroll: true })
     node?.scrollIntoView({ block: "nearest", inline: "center" })
   }, [highlightedComponentId, highlightedResult])
+  const isMoving = movingComponent !== undefined
+  useLayoutEffect(() => {
+    if (isMoving) movePrompt.current?.scrollIntoView({ block: "start" })
+  }, [isMoving])
 
   const hostGroups = new Map(
     Array.from(guests, ([id, members]) => [
@@ -169,6 +182,7 @@ export function DiagramView({
     defaultHeight,
     ...boxes.map(({ y, height }) => y + height + 72)
   )
+  const canvasSize = boxes.length ? { width, height } : undefined
 
   const flaggedComponents = new Set(
     plan.addressIssues
@@ -176,18 +190,22 @@ export function DiagramView({
       .flatMap((issue) => issue.interfaces.map((port) => port.componentId))
   )
 
-  function renderComponent(component: Component, enclosure?: DiagramBox) {
-    const box = components.get(component.id)!
-    const initial = componentBoxes.get(component.id)!
-    const hostBounds = enclosures.get(component.id)
-    const minimum = hostBounds
+  function componentMinimum({ id, hostId }: Component) {
+    const hostBounds = savedLayout.enclosures.get(id)
+    const initial = savedLayout.componentBoxes.get(id)!
+    return hostBounds
       ? {
           x: origin.x + initial.x - hostBounds.x,
           y: origin.y + initial.y - hostBounds.y,
         }
-      : component.hostId
+      : hostId
         ? { x: origin.x + 16, y: origin.y + 34 }
         : origin
+  }
+
+  function renderComponent(component: Component, enclosure?: DiagramBox) {
+    const box = components.get(component.id)!
+    const initial = componentBoxes.get(component.id)!
     const highlighted = component.id === highlightedComponentId
     const dimmed = searchQuery.trim() && !matchIds.has(component.id)
     return (
@@ -219,8 +237,11 @@ export function DiagramView({
         title={component.name}
         {...bind(
           { id: component.id, kind: "component", position: initial },
-          minimum,
-          () => onSelectComponent(component.id)
+          componentMinimum(component),
+          () =>
+            onSelectComponent(component.id, () =>
+              setMovingComponentId(component.id)
+            )
         )}
       >
         <DiagramComponentLabel component={component} />
@@ -235,18 +256,37 @@ export function DiagramView({
     )
   }
 
-  function drop(event: DragEvent<HTMLDivElement>) {
-    if (!canEdit) return
-    const type = event.dataTransfer.getData(placementType)
-    if (type !== "network" && type !== "component") return
-    event.preventDefault()
+  function canvasPosition(event: MouseEvent<HTMLDivElement>) {
     const frame = event.currentTarget.getBoundingClientRect()
-    const position = {
+    return {
       x: Math.round(event.clientX - frame.left + origin.x),
       y: Math.round(event.clientY - frame.top + origin.y),
     }
+  }
+
+  function drop(event: DragEvent<HTMLDivElement>) {
+    if (!canEdit || movingComponent) return
+    const type = event.dataTransfer.getData(placementType)
+    if (type !== "network" && type !== "component") return
+    event.preventDefault()
+    const position = canvasPosition(event)
     if (type === "component") onPlaceComponent(position)
     else setNetworkSelection({ position })
+  }
+
+  function moveTo(event: MouseEvent<HTMLDivElement>, component: Component) {
+    if (saving) return
+    const destination = canvasPosition(event)
+    const minimum = componentMinimum(component)
+    setMovingComponentId(undefined)
+    void place({
+      id: component.id,
+      kind: "component",
+      position: {
+        x: Math.max(minimum.x, destination.x),
+        y: Math.max(minimum.y, destination.y),
+      },
+    })
   }
 
   return (
@@ -261,6 +301,7 @@ export function DiagramView({
               onChange={(event) => {
                 setFocusedNetworkId(event.target.value || null)
                 setHighlightedResult(undefined)
+                setMovingComponentId(undefined)
               }}
             >
               <option value="">Full topology</option>
@@ -283,6 +324,7 @@ export function DiagramView({
         onSelectResult={(result) => {
           setFocusedNetworkId(result.networkId)
           setHighlightedResult({ ...result })
+          setMovingComponentId(undefined)
         }}
       >
         {canEdit && plan.components.length > 0 && (
@@ -305,13 +347,30 @@ export function DiagramView({
           {plan.links.length > 0 && <LinkLegend />}
         </div>
       )}
+      {movingComponent && (
+        <div
+          ref={movePrompt}
+          className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted px-4 py-2"
+        >
+          <p role="status" className="text-xs">
+            Tap or click the destination for {movingComponent.name}.
+          </p>
+          <Button
+            variant="outline"
+            className="min-h-11"
+            onClick={() => setMovingComponentId(undefined)}
+          >
+            Cancel move
+          </Button>
+        </div>
+      )}
       {error && (
         <p role="alert" className="border-b px-4 py-2 text-destructive">
           {error}
         </p>
       )}
       <div
-        className="diagram-grid max-h-[70svh] min-h-[50svh] overflow-auto"
+        className="diagram-grid relative max-h-[70svh] min-h-[50svh] overflow-auto"
         role="region"
         aria-label="Topology canvas"
         tabIndex={0}
@@ -319,9 +378,14 @@ export function DiagramView({
       >
         <div
           className="relative min-h-[50svh] min-w-full"
-          style={boxes.length ? { width, height } : undefined}
+          style={canvasSize}
+          inert={isMoving}
           onDragOver={(event) => {
-            if (canEdit && event.dataTransfer.types.includes(placementType)) {
+            if (
+              canEdit &&
+              !movingComponent &&
+              event.dataTransfer.types.includes(placementType)
+            ) {
               event.preventDefault()
               event.dataTransfer.dropEffect = "copy"
             }
@@ -418,6 +482,14 @@ export function DiagramView({
             )
           })}
         </div>
+        {movingComponent && (
+          <div
+            aria-hidden="true"
+            className="absolute top-0 left-0 z-40 min-h-[50svh] min-w-full cursor-crosshair"
+            style={canvasSize}
+            onClick={(event) => moveTo(event, movingComponent)}
+          />
+        )}
       </div>
       {(link || (linkSelection === null && canEdit)) && (
         <LinkInspector

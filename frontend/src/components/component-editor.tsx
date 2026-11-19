@@ -28,6 +28,7 @@ type Props = {
   component?: Component
   canEdit: boolean
   onClose: () => void
+  onMove?: () => void
   savePlan: SavePlanSnapshot
 }
 
@@ -36,6 +37,7 @@ export function ComponentEditor({
   component,
   canEdit,
   onClose,
+  onMove,
   savePlan,
 }: Props) {
   const formId = useId()
@@ -149,10 +151,24 @@ export function ComponentEditor({
         showCloseButton={false}
         className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
       >
-        <DialogHeader>
-          <DialogTitle className="break-words">
+        <DialogHeader className="flex-row items-center justify-between gap-3">
+          <DialogTitle className="min-w-0 break-words">
             {component?.name ?? "Add component"}
           </DialogTitle>
+          {canEdit && component && onMove && (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              disabled={busy}
+              onClick={() => {
+                onMove()
+                onClose()
+              }}
+            >
+              Move
+            </Button>
+          )}
         </DialogHeader>
         {canEdit ? (
           <form
