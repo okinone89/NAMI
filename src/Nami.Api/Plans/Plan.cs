@@ -17,7 +17,11 @@ public sealed record PlanNetwork(
     string Id,
     string Name,
     string? Subnet = null,
-    DiagramPosition? Position = null);
+    DiagramPosition? Position = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    Ipv4Range? AllocationPool = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<Ipv4Range>? ExcludedIpv4Ranges = null);
 
 public sealed record Component(
     string Id,

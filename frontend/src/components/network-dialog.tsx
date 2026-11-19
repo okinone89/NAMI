@@ -1,4 +1,8 @@
-import { useId } from "react"
+import { useId, useState } from "react"
+import {
+  NetworkAllocationFields,
+  readAllocationFields,
+} from "@/components/network-allocation-fields"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { PlanNameDialog } from "@/components/plan-name-dialog"
@@ -20,19 +24,21 @@ export function NetworkDialog({
   onClose,
 }: Props) {
   const subnetId = useId()
+  const [subnet, setSubnet] = useState(network?.subnet ?? "")
 
   async function save(name: string, fields: FormData) {
-    const subnet = String(fields.get("subnet") ?? "").trim() || null
+    const savedSubnet = subnet.trim() || null
+    const addressing = { subnet: savedSubnet, ...readAllocationFields(fields) }
     const networks = network
       ? plan.networks.map((item) =>
-          item.id === network.id ? { ...item, name, subnet } : item
+          item.id === network.id ? { ...item, name, ...addressing } : item
         )
       : [
           ...plan.networks,
           {
             id: crypto.randomUUID(),
             name,
-            subnet,
+            ...addressing,
             position: position ?? null,
           },
         ]
@@ -53,13 +59,15 @@ export function NetworkDialog({
         <Input
           id={subnetId}
           name="subnet"
-          defaultValue={network?.subnet ?? ""}
+          value={subnet}
+          onChange={(event) => setSubnet(event.target.value)}
           placeholder="192.168.1.0/24"
           spellCheck={false}
           autoComplete="off"
           className="min-h-11"
         />
       </Field>
+      <NetworkAllocationFields network={network} disabled={!subnet.trim()} />
     </PlanNameDialog>
   )
 }
