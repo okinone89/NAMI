@@ -1,4 +1,5 @@
 """Run after dotnet build src/Nami.Api. PostgreSQL server tools must be on PATH."""
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -13,10 +14,11 @@ from urllib.request import urlopen
 API = Path(__file__).resolve().parents[1] / "src/Nami.Api"
 
 
-def check_startup(directory, settings):
+@contextmanager
+def running_api(directory, settings, executable=API / "bin/Debug/net10.0/Nami.Api.dll"):
     with (directory / "api.log").open("w+") as log:
         process = subprocess.Popen(
-            ["dotnet", str(API / "bin/Debug/net10.0/Nami.Api.dll"), "--urls", "http://127.0.0.1:0"],
+            ["dotnet", str(executable), "--urls", "http://127.0.0.1:0"],
             cwd=API, env={**os.environ, **settings,
                           "Logging__LogLevel__Microsoft.Hosting.Lifetime": "Information"},
             stdout=log, stderr=subprocess.STDOUT,
@@ -28,9 +30,7 @@ def check_startup(directory, settings):
                     raise AssertionError(output)
                 address = re.search(r"Now listening on: (http://127\.0\.0\.1:\d+)", output)
                 if address:
-                    with urlopen(address[1] + "/health", timeout=5) as response:
-                        if response.status != 200 or json.load(response) != {"status": "ready"}:
-                            raise AssertionError("Unexpected readiness response")
+                    yield address[1]
                     return
                 time.sleep(0.05)
             raise AssertionError("API startup timed out: " + output)
@@ -38,6 +38,13 @@ def check_startup(directory, settings):
             if process.poll() is None:
                 process.terminate()
             process.wait(timeout=10)
+
+
+def check_startup(directory, settings):
+    with running_api(directory, settings) as address:
+        with urlopen(address + "/health", timeout=5) as response:
+            if response.status != 200 or json.load(response) != {"status": "ready"}:
+                raise AssertionError("Unexpected readiness response")
 
 
 class DatabaseStartup(unittest.TestCase):

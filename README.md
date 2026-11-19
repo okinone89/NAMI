@@ -29,6 +29,16 @@ Supply authentication through a protected PostgreSQL password file or inject the
 
 Back up before upgrades. For SQLite, use the SQLite shell's online backup command, for example `sqlite3 /var/lib/nami/nami.db ".backup '/backups/nami.db'"`. Stop NAMI and restore the snapshot to a fresh file at the configured path. For PostgreSQL, use the server's managed snapshots or `pg_dump -Fc` and restore with `pg_restore` into an empty database. Start NAMI against the restored database and check readiness and expected records.
 
+## Shared editor access
+
+Serve the frontend and `/api` from the same HTTPS origin on the internal server. Anyone on the site LAN or VPN who can reach NAMI can browse plans. To enable editing, the deployment administrator sets `Editor__Passphrase` in the API service's environment through its secret store, then starts the service. Choose a long, randomly generated passphrase and share it with editors through a protected channel. With the setting unset, the deployment serves read-only browsing.
+
+Select **Unlock editing** and enter the shared passphrase to edit any plan. **Sign out** ends the session and keeps the current plan open. Eight hours without plan API activity also ends the session. Checking the session status alone does not restart the idle timer.
+
+To recover a lost passphrase or rotate it, stop the API instance, replace `Editor__Passphrase` in the service configuration, and restart it. The API holds editor sessions in that process, so the restart revokes all previous sessions. Editors unlock again with the replacement passphrase. Deploy one API process per NAMI installation.
+
+For local HTTP development on loopback, use a separate passphrase and enable the development cookie by launching the API with `ASPNETCORE_ENVIRONMENT=Development`. Set `Editor__Passphrase` in the local API environment before launch.
+
 ## Integration tests
 
 On macOS or Linux, install Python 3 and put the PostgreSQL server utilities (`initdb`, `pg_ctl`, `psql`) on PATH. Run as a regular user. The suite starts the API on loopback and creates its own SQLite file and disposable PostgreSQL cluster.
@@ -36,6 +46,13 @@ On macOS or Linux, install Python 3 and put the PostgreSQL server utilities (`in
 ```sh
 dotnet build src/Nami.Api
 python3 tests/startup.py
+```
+
+To run the editor session HTTP tests with a controllable clock, build and run the separate loopback test host through the Python suite:
+
+```sh
+dotnet build tests/EditorSessionHost
+python3 tests/editor_sessions.py
 ```
 
 ## React workspace
@@ -48,6 +65,6 @@ npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite (normally http://localhost:5173). The diagram and interface table share the empty plan in `frontend/public/fixtures/empty-plan.json`. Both views work with the API stopped. To run them alongside the local API, start the API in another terminal using the command above. Vite forwards `/health` to the API on port 5080. Plan data comes from the fixture until the API exposes plan reads.
+Open the local URL printed by Vite (normally http://localhost:5173). The diagram and interface table share the empty plan in `frontend/public/fixtures/empty-plan.json`. Both views work with the API stopped. To run them alongside the local API, start the API in another terminal using the command above. Vite forwards `/api` and `/health` to the API on port 5080. Plan data comes from the fixture until the API exposes plan reads.
 
 The workspace uses shadcn preset `b2CRHdRTM`. Its generated configuration and theme are in `frontend/components.json` and `frontend/src/index.css`. From `frontend`, run `npm run build` to typecheck and produce the Vite production bundle in `dist/`. CI runs that build and the desktop and phone browser tests. To run the tests locally, use `npx playwright install chromium --only-shell` followed by `npm test`.
