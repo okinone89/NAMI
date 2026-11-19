@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 
 namespace Nami.Api.Plans;
 
@@ -93,7 +94,12 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
         if (issues.Count > 0)
             throw new AddressValidationException(issues);
         await using var database = Database.Open(configuration, contentRoot);
+        // An explicit SQLite commit can wait for readers after the returning statement has finished.
+        await using var transaction = database is SqliteConnection
+            ? await database.BeginTransactionAsync(cancellationToken)
+            : null;
         await using var command = database.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             UPDATE plans
             SET name = @name, topology = @topology, revision = revision + 1,
@@ -109,7 +115,12 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
             inventoryUndo is null ? "" : JsonSerializer.Serialize(inventoryUndo, JsonOptions));
         AddParameter(command, "revision", plan.Revision);
         var result = await command.ExecuteScalarAsync(cancellationToken);
-        return result is null ? null : plan with
+        if (result is null)
+            return null;
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
+
+        return plan with
         {
             Revision = (long)result,
             InventoryUndo = updateInventoryUndo ? inventoryUndo : current.InventoryUndo

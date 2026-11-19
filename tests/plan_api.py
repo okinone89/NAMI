@@ -1,5 +1,8 @@
 """Exercise plan management through the HTTP API on both providers."""
+from concurrent.futures import ThreadPoolExecutor, wait
+from contextlib import closing
 from pathlib import Path
+import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -39,6 +42,35 @@ class PlanManagement(unittest.TestCase):
             directory = Path(tmp)
             with postgres_settings(directory) as postgres:
                 self.exercise_topology_updates(directory, {**settings_for(directory), **postgres})
+
+    def test_sqlite_saves_both_plans_when_a_reader_delays_commit(self):
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            settings = settings_for(directory)
+            with running_api(directory, settings) as address, ThreadPoolExecutor(2) as editors:
+                cookie = unlock(address)
+                edits = []
+                for name in ("Packaging", "Assembly"):
+                    status, plan, headers = request(address, "/api/plans", "POST", {"name": name}, cookie)
+                    self.assertEqual(status, 201)
+                    edits.append((headers["Location"], {**plan, "name": f"{name} revised"}))
+
+                # A separate reader holds a shared lock while the HTTP saves reach their commits.
+                with closing(sqlite3.connect(settings["Database__File"])) as reader:
+                    reader.execute("BEGIN")
+                    self.assertEqual(reader.execute("SELECT COUNT(*) FROM plans").fetchone(), (2,))
+                    pending = [editors.submit(request, address, path, "PUT", edit, cookie)
+                               for path, edit in edits]
+                    wait(pending, timeout=0.75)
+                    reader.rollback()
+
+                for (path, edit), pending_save in zip(edits, pending):
+                    status, saved, _ = pending_save.result()
+                    log = (directory / "api.log").read_text()
+                    locked = "SQLite Error 5: 'database is locked'" in log
+                    self.assertEqual(status, 200, f"SQLite reported a locked database: {locked}")
+                    self.assertEqual(saved, {**edit, "revision": 1})
+                    self.assertEqual(request(address, path)[:2], (200, saved))
 
     def exercise_topology_updates(self, directory, settings):
         with running_api(directory, settings) as address:
