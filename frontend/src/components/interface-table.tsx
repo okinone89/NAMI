@@ -5,11 +5,13 @@ import {
   IconArrowsSort,
   IconTable,
 } from "@tabler/icons-react"
+import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { ConnectionList } from "@/components/connection-list"
 import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
+import type { AddressConflictApproval } from "@/lib/address-issues"
 import type { PlanInterface } from "@/lib/plans"
 import { cn } from "@/lib/utils"
 
@@ -47,7 +49,12 @@ export function InterfaceTable({
   const [sort, setSort] = useState<Sort>()
   const [draft, setDraft] = useState<InterfaceDraft>()
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string>()
+  const [failure, setFailure] = useState<unknown>()
+  const flaggedPorts = new Set(
+    plan.addressIssues
+      ?.filter((issue) => issue.code === "duplicateIpv4")
+      .flatMap((issue) => issue.interfaces.map((port) => port.interfaceId))
+  )
   const draftPort =
     canEdit && draft
       ? plan.interfaces.find((port) => port.id === draft.interfaceId)
@@ -89,7 +96,7 @@ export function InterfaceTable({
   }
 
   function editInterface(interfaceId: string, changes: Partial<Addressing>) {
-    setError(undefined)
+    setFailure(undefined)
     setDraft((previous) => ({
       interfaceId,
       changes: {
@@ -99,29 +106,32 @@ export function InterfaceTable({
     }))
   }
 
-  async function saveInterface(event: FormEvent<HTMLFormElement>) {
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    void saveInterface()
+  }
+
+  async function saveInterface(approvals?: AddressConflictApproval[]) {
     if (!draft || !draftPort || saving) return
 
     const changes = { ...draft.changes }
     if (changes.ipv4 !== undefined) changes.ipv4 = changes.ipv4?.trim() || null
 
     setSaving(true)
-    setError(undefined)
     try {
-      await savePlan({
-        ...plan,
-        interfaces: plan.interfaces.map((port) =>
-          port.id === draft.interfaceId ? { ...port, ...changes } : port
-        ),
-      })
-      setDraft(undefined)
-    } catch (failure) {
-      setError(
-        failure instanceof Error
-          ? failure.message
-          : "Unable to save the interface. Try again."
+      await savePlan(
+        {
+          ...plan,
+          interfaces: plan.interfaces.map((port) =>
+            port.id === draft.interfaceId ? { ...port, ...changes } : port
+          ),
+        },
+        approvals
       )
+      setDraft(undefined)
+      setFailure(undefined)
+    } catch (error) {
+      setFailure(error)
     } finally {
       setSaving(false)
     }
@@ -152,7 +162,7 @@ export function InterfaceTable({
             {draftPort && (
               <form
                 id={`${id}-save`}
-                onSubmit={saveInterface}
+                onSubmit={submit}
                 className="flex max-w-full flex-wrap items-center gap-2"
               >
                 <span role="status" className="text-xs break-words">
@@ -169,19 +179,17 @@ export function InterfaceTable({
                   className="min-h-11"
                   onClick={() => {
                     setDraft(undefined)
-                    setError(undefined)
+                    setFailure(undefined)
                   }}
                 >
                   Discard changes
                 </Button>
-                {error && (
-                  <p
-                    role="alert"
-                    className="basis-full text-xs text-destructive"
-                  >
-                    {error}
-                  </p>
-                )}
+                <AddressSaveFeedback
+                  failure={failure}
+                  fallback="Unable to save the interface. Try again."
+                  disabled={saving}
+                  onKeep={(approvals) => void saveInterface(approvals)}
+                />
               </form>
             )}
           </div>
@@ -300,6 +308,11 @@ export function InterfaceTable({
                           />
                         ) : (
                           ipv4 || "—"
+                        )}
+                        {flaggedPorts.has(port.id) && (
+                          <span className="mt-1 block font-medium text-destructive">
+                            IPv4 address conflict
+                          </span>
                         )}
                       </td>
                     </tr>

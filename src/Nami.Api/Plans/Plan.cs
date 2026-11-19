@@ -8,6 +8,7 @@ public sealed record Plan(string Id, string Name, long Revision)
     public IReadOnlyList<Component> Components { get; init; } = [];
     public IReadOnlyList<PlanInterface> Interfaces { get; init; } = [];
     public IReadOnlyList<PlanLink> Links { get; init; } = [];
+    public IReadOnlyList<AddressIssue> AddressIssues => AddressValidation.Inspect(this);
 }
 
 public sealed record PlanSummary(string Id, string Name);

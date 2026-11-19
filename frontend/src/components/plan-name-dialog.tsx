@@ -1,4 +1,5 @@
-import { useId, useState, type FormEvent } from "react"
+import { useId, useState, type FormEvent, type ReactNode } from "react"
+import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -14,8 +15,9 @@ type Props = {
   label: string
   action: string
   name?: string
+  children?: ReactNode
   onClose: () => void
-  onSave: (name: string) => Promise<void>
+  onSave: (name: string, fields: FormData) => Promise<void>
 }
 
 export function PlanNameDialog({
@@ -23,32 +25,30 @@ export function PlanNameDialog({
   label,
   action,
   name,
+  children,
   onClose,
   onSave,
 }: Props) {
   const fieldId = useId()
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
+  const [failure, setFailure] = useState<unknown>()
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const value = String(new FormData(event.currentTarget).get("name")).trim()
+    const fields = new FormData(event.currentTarget)
+    const value = String(fields.get("name")).trim()
     if (!value) {
-      setError(`Enter a ${label.toLowerCase()}.`)
+      setFailure(new Error(`Enter a ${label.toLowerCase()}.`))
       return
     }
 
-    setError("")
+    setFailure(undefined)
     setBusy(true)
     try {
-      await onSave(value)
+      await onSave(value, fields)
       onClose()
-    } catch (failure) {
-      setError(
-        failure instanceof Error
-          ? failure.message
-          : "Unable to save. Try again."
-      )
+    } catch (error) {
+      setFailure(error)
       setBusy(false)
     }
   }
@@ -64,25 +64,31 @@ export function PlanNameDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <form className="flex flex-col gap-4" onSubmit={submit}>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={submit}
+          onChange={() => setFailure(undefined)}
+        >
           <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
-              <Input
-                id={fieldId}
-                name="name"
-                defaultValue={name}
-                required
-                disabled={busy}
-                className="min-h-11"
-              />
-            </Field>
+            <fieldset disabled={busy} className="flex min-w-0 flex-col gap-4">
+              <Field>
+                <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
+                <Input
+                  id={fieldId}
+                  name="name"
+                  defaultValue={name}
+                  required
+                  className="min-h-11"
+                />
+              </Field>
+              {children}
+            </fieldset>
           </FieldGroup>
-          {error && (
-            <p role="alert" className="text-destructive">
-              {error}
-            </p>
-          )}
+          <AddressSaveFeedback
+            failure={failure}
+            fallback="Unable to save. Try again."
+            disabled={busy}
+          />
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="button"
