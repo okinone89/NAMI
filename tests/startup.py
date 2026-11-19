@@ -1,4 +1,4 @@
-"""Run after dotnet build src/Nami.Api. PostgreSQL server tools must be on PATH."""
+"""Run after dotnet build tests/PlanPersistence. PostgreSQL server tools must be on PATH."""
 import json
 import os
 from pathlib import Path
@@ -40,13 +40,23 @@ def check_startup(directory, settings):
             process.wait(timeout=10)
 
 
+def run_plan_test(settings, phase, *arguments):
+    executable = API.parents[1] / "tests/PlanPersistence/bin/Debug/net10.0/PlanPersistence.dll"
+    return subprocess.check_output(
+        ["dotnet", str(executable), phase, *arguments],
+        cwd=API, env={**os.environ, **settings}, text=True, timeout=30,
+    )
+
+
 class DatabaseStartup(unittest.TestCase):
     def exercise(self, directory, settings, sql):
         check_startup(directory, settings)
-        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "2")
-        sql("INSERT INTO plans (id, name) VALUES ('line-1', 'Assembly')")
+        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "3")
+        plan_ids = run_plan_test(settings, "create").splitlines()
         check_startup(directory, settings)
-        self.assertEqual(sql("SELECT name FROM plans WHERE id='line-1'"), "Assembly")
+        run_plan_test(settings, "reload", *plan_ids)
+        check_startup(directory, settings)
+        run_plan_test(settings, "verify-edits", *plan_ids)
 
         # Restore the original v1 schema in this disposable database.
         sql("DROP TABLE plans")
@@ -56,8 +66,9 @@ class DatabaseStartup(unittest.TestCase):
         sql("CREATE TABLE plans (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL)")
         sql("INSERT INTO plans VALUES ('line-1', 'Assembly')")
         check_startup(directory, settings)
-        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "2")
+        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "3")
         self.assertEqual(sql("SELECT name FROM plans WHERE id='line-1'"), "Assembly")
+        run_plan_test(settings, "legacy", "line-1")
         sql("DROP INDEX plans_name_idx")  # The upgrade physically recreated the index.
 
     def test_sqlite(self):
