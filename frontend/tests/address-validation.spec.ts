@@ -126,6 +126,7 @@ test("editors can add and clear a subnet and correct an out-of-range address", a
     name: "IPv4 address for Filler PLC / LAN A",
   })
   const saveInterface = page.getByRole("button", { name: "Save interface" })
+  const discard = page.getByRole("button", { name: "Discard changes" })
   await address.fill("192.168.2.10")
   await saveInterface.click()
   await expect(page.getByRole("alert")).toContainText(
@@ -136,7 +137,7 @@ test("editors can add and clear a subnet and correct an out-of-range address", a
   ).toHaveCount(0)
   await address.fill("192.168.1.15")
   await saveInterface.click()
-  await expect(saveInterface).toBeHidden()
+  await expect(discard).toBeHidden()
 
   await editNetwork.click()
   await expect(subnet).toHaveValue("192.168.1.0/24")
@@ -145,6 +146,6 @@ test("editors can add and clear a subnet and correct an out-of-range address", a
   await expect(network).toBeHidden()
   await address.fill("192.168.2.10")
   await saveInterface.click()
-  await expect(saveInterface).toBeHidden()
+  await expect(discard).toBeHidden()
   await expect(address).toHaveValue("192.168.2.10")
 })
