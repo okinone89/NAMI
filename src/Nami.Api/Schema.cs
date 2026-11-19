@@ -10,7 +10,12 @@ internal static class Schema
     private static readonly string[] Migrations =
     [
         "CREATE TABLE plans (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL)",
-        "CREATE INDEX plans_name_idx ON plans (name)"
+        "CREATE INDEX plans_name_idx ON plans (name)",
+        """
+        ALTER TABLE plans ADD COLUMN revision BIGINT NOT NULL DEFAULT 0;
+        ALTER TABLE plans ADD COLUMN topology TEXT;
+        """,
+        "ALTER TABLE plans ADD COLUMN inventory_undo TEXT"
     ];
 
     public static void Upgrade(DbConnection database)

@@ -1,67 +1,87 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import {
   IconCircuitSwitchOpen,
   IconSchema,
   IconTable,
 } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
+import { EditorSessionControls } from "@/components/editor-session"
+import { useEditorSession } from "@/hooks/use-editor-session"
+import { usePlanWorkspace } from "@/hooks/use-plan-workspace"
+import { PlanNameDialog } from "@/components/plan-name-dialog"
+import { PlanPackageControls } from "@/components/plan-package-controls"
+import { PlanNetworks } from "@/components/plan-networks"
+import { ComponentEditor } from "@/components/component-editor"
+import { DiagramView } from "@/components/diagram-view"
+import { InterfaceTable } from "@/components/interface-table"
+import { diagramDragSource } from "@/lib/diagram-placement"
+import type { DiagramPosition, SavePlanSnapshot } from "@/lib/plans"
 
 const views = {
   Diagram: {
     icon: IconSchema,
     heading: "Network diagram",
-    emptyTitle: "No components yet",
-    description: "Components and links will appear on this diagram.",
-    canvasClass: "diagram-grid",
+    component: DiagramView,
   },
   Table: {
     icon: IconTable,
     heading: "Interface table",
-    emptyTitle: "No interfaces yet",
-    description: "Each interface will have its own row in this table.",
-    canvasClass: "",
+    component: InterfaceTable,
   },
 }
 type View = keyof typeof views
-type Plan = {
-  name: string
-  components: unknown[]
-  interfaces: unknown[]
-  networks: unknown[]
+type ComponentSelection = {
+  planId: string
+  componentId: string | null
+  position?: DiagramPosition
+  onMove?: () => void
+  onPlaced?: (componentId: string) => void
 }
 
 export default function App() {
+  const editorSession = useEditorSession()
+  const workspace = usePlanWorkspace(editorSession.refresh)
+  const { plans, plan, failed, loading } = workspace
   const [view, setView] = useState<View>("Diagram")
-  const [plan, setPlan] = useState<Plan>()
-  const [failed, setFailed] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [selection, setSelection] = useState<ComponentSelection>()
+  const activeSelection = selection?.planId === plan?.id ? selection : undefined
+  const selectedComponent = plan?.components.find(
+    ({ id }) => id === activeSelection?.componentId
+  )
+  const addingComponent =
+    activeSelection?.componentId === null && editorSession.canEdit
 
-  useEffect(() => {
-    const controller = new AbortController()
-    async function load() {
-      try {
-        const response = await fetch(
-          import.meta.env.BASE_URL + "fixtures/empty-plan.json",
-          {
-            signal: controller.signal,
-          }
-        )
-        if (!response.ok) throw new Error("Plan unavailable")
-        setPlan(await response.json())
-      } catch {
-        if (!controller.signal.aborted) setFailed(true)
-      }
-    }
-    void load()
-    return () => controller.abort()
-  }, [])
+  function selectComponent(
+    componentId: string | null,
+    options?: Pick<ComponentSelection, "position" | "onMove" | "onPlaced">
+  ) {
+    if (plan) setSelection({ planId: plan.id, componentId, ...options })
+  }
 
-  const {
-    icon: ViewIcon,
-    heading,
-    emptyTitle,
-    description,
-    canvasClass,
-  } = views[view]
+  const saveComponent: SavePlanSnapshot = async (
+    next,
+    keepAddressConflicts
+  ) => {
+    const position = activeSelection?.position
+    if (!plan || !addingComponent || !position)
+      return workspace.savePlan(next, keepAddressConflicts)
+
+    const existing = new Set(plan.components.map(({ id }) => id))
+    await workspace.savePlan(
+      {
+        ...next,
+        components: next.components.map((component) =>
+          existing.has(component.id) ? component : { ...component, position }
+        ),
+      },
+      keepAddressConflicts
+    )
+    const placed = next.components.find(({ id }) => !existing.has(id))
+    if (placed) activeSelection?.onPlaced?.(placed.id)
+  }
+
+  const { icon: ViewIcon, heading, component: ActiveView } = views[view]
   return (
     <>
       <header className="flex items-center gap-3 border-b px-5 py-4 sm:px-10">
@@ -70,12 +90,49 @@ export default function App() {
           className="size-8 bg-primary p-1 text-primary-foreground"
         />
         <strong className="tracking-wide">NAMI</strong>
-        <span className="border-l pl-3 text-xs">Network workspace</span>
+        <span className="hidden border-l pl-3 text-xs sm:inline">
+          Network workspace
+        </span>
+        <EditorSessionControls session={editorSession} />
       </header>
       <main className="mx-auto max-w-7xl px-4 py-7 sm:px-10 sm:py-12">
+        <div className="mb-6 flex flex-wrap items-end gap-3">
+          {!!plans?.length && (
+            <label className="flex min-w-0 flex-col gap-1 text-xs">
+              Open plan
+              <select
+                className="min-h-11 max-w-full border border-input bg-background px-3"
+                value={workspace.planId}
+                onChange={(event) => workspace.selectPlan(event.target.value)}
+              >
+                {plans.map(({ id, name }) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {editorSession.canEdit && plans && (
+            <Button
+              variant="outline"
+              className="min-h-11"
+              onClick={() => setCreating(true)}
+            >
+              New plan
+            </Button>
+          )}
+          {editorSession.canEdit && plans && (
+            <PlanPackageControls
+              plan={plan}
+              onExport={workspace.exportPlan}
+              onImport={workspace.importPlan}
+            />
+          )}
+        </div>
         <div className="mb-5 flex flex-wrap items-end justify-between gap-5">
-          <div>
-            <h1 className="text-3xl font-medium tracking-tight sm:text-4xl">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-medium tracking-tight break-words sm:text-4xl">
               {plan?.name ?? "Network plan"}
             </h1>
             {plan && (
@@ -103,36 +160,84 @@ export default function App() {
             })}
           </nav>
         </div>
+        {plan && (
+          <PlanNetworks
+            key={plan.id}
+            plan={plan}
+            canEdit={editorSession.canEdit}
+            savePlan={workspace.savePlan}
+            diagram={view === "Diagram"}
+          />
+        )}
         <section aria-label={view} className="border">
-          <h2 className="flex items-center gap-2 border-b bg-muted px-4 py-3 text-sm font-medium">
-            <ViewIcon size={18} aria-hidden="true" />
-            {heading}
-          </h2>
-          <div
-            className={
-              "grid min-h-[50svh] place-items-center px-5 text-center " +
-              canvasClass
-            }
-          >
-            {failed ? (
-              <p role="alert">Unable to load the plan. Reload to try again.</p>
-            ) : !plan ? (
-              <p role="status">Loading plan…</p>
-            ) : (
-              <div className="bg-background p-5">
-                <ViewIcon
-                  aria-hidden="true"
-                  size={36}
-                  stroke={1.3}
-                  className="mx-auto mb-4"
-                />
-                <h3 className="text-lg font-medium">{emptyTitle}</h3>
-                <p className="mt-2 max-w-sm text-sm">{description}</p>
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted px-4 py-2">
+            <h2 className="flex items-center gap-2 py-1 text-sm font-medium">
+              <ViewIcon size={18} aria-hidden="true" />
+              {heading}
+            </h2>
+            {plan && editorSession.canEdit && (
+              <Button
+                variant="outline"
+                className="min-h-11"
+                onClick={() => selectComponent(null)}
+                {...(view === "Diagram" ? diagramDragSource("component") : {})}
+              >
+                Add component
+              </Button>
             )}
           </div>
+          {plan && !failed ? (
+            <ActiveView
+              key={plan.id}
+              plan={plan}
+              canEdit={editorSession.canEdit}
+              savePlan={workspace.savePlan}
+              refreshPlan={workspace.refreshPlan}
+              withEditorAccess={workspace.withEditorAccess}
+              onSelectComponent={(componentId, onMove) =>
+                selectComponent(componentId, { onMove })
+              }
+              onPlaceComponent={(position, onPlaced) =>
+                selectComponent(null, { position, onPlaced })
+              }
+            />
+          ) : (
+            <div className="grid min-h-[50svh] place-items-center px-5 text-center">
+              {failed ? (
+                <p role="alert">
+                  Unable to load the plan. Reload to try again.
+                </p>
+              ) : loading ? (
+                <p role="status">Loading plan…</p>
+              ) : (
+                <h3 className="bg-background p-5 text-lg font-medium">
+                  No plans yet
+                </h3>
+              )}
+            </div>
+          )}
         </section>
       </main>
+      {plan && (selectedComponent || addingComponent) && (
+        <ComponentEditor
+          key={selectedComponent?.id ?? "add-component"}
+          plan={plan}
+          component={selectedComponent}
+          canEdit={editorSession.canEdit}
+          onClose={() => setSelection(undefined)}
+          onMove={activeSelection?.onMove}
+          savePlan={saveComponent}
+        />
+      )}
+      {creating && editorSession.canEdit && (
+        <PlanNameDialog
+          title="New plan"
+          label="Plan name"
+          action="Create plan"
+          onSave={workspace.addPlan}
+          onClose={() => setCreating(false)}
+        />
+      )}
     </>
   )
 }

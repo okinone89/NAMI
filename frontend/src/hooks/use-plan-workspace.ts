@@ -1,0 +1,124 @@
+import { useEffect, useState } from "react"
+import type { AddressConflictApproval } from "@/lib/address-issues"
+import {
+  createPlan,
+  exportPlan,
+  getPlan,
+  importPlan,
+  listPlans,
+  PlanRequestError,
+  savePlan,
+  type Plan,
+  type PlanSummary,
+} from "@/lib/plans"
+
+export function usePlanWorkspace(onEditorExpired: () => void) {
+  const [plans, setPlans] = useState<PlanSummary[]>()
+  const [selection, setSelection] = useState(() =>
+    new URL(location.href).searchParams.get("plan")
+  )
+  const [snapshot, setSnapshot] = useState<Plan>()
+  const [failedPlanId, setFailedPlanId] = useState<string>()
+  const [listFailed, setListFailed] = useState(false)
+  const [readVersion, setReadVersion] = useState(0)
+  const planId = plans?.find(({ id }) => id === selection)?.id ?? plans?.[0]?.id
+  const plan = snapshot?.id === planId ? snapshot : undefined
+
+  useEffect(() => {
+    const read = new AbortController()
+    void listPlans(read.signal)
+      .then((plans) => {
+        if (!read.signal.aborted) setPlans(plans)
+      })
+      .catch(() => {
+        if (!read.signal.aborted) setListFailed(true)
+      })
+    return () => read.abort()
+  }, [])
+
+  useEffect(() => {
+    if (!planId) return
+    const read = new AbortController()
+    void getPlan(planId, read.signal)
+      .then((opened) => {
+        if (read.signal.aborted) return
+        setFailedPlanId(undefined)
+        setSnapshot((current) =>
+          current?.id === opened.id && current.revision > opened.revision
+            ? current
+            : opened
+        )
+      })
+      .catch(() => {
+        if (!read.signal.aborted) setFailedPlanId(planId)
+      })
+    return () => read.abort()
+  }, [planId, readVersion])
+
+  function selectPlan(id: string) {
+    const url = new URL(location.href)
+    url.searchParams.set("plan", id)
+    history.replaceState(null, "", url)
+    setSelection(id)
+  }
+
+  async function withEditorAccess<T>(operation: Promise<T>): Promise<T> {
+    try {
+      return await operation
+    } catch (error) {
+      if (error instanceof PlanRequestError && error.status === 401)
+        onEditorExpired()
+      throw error
+    }
+  }
+
+  function openNewPlan(created: Plan) {
+    setPlans((previous) => [
+      ...(previous ?? []),
+      { id: created.id, name: created.name },
+    ])
+    setSnapshot(created)
+    selectPlan(created.id)
+  }
+
+  async function addPlan(name: string) {
+    openNewPlan(await withEditorAccess(createPlan(name)))
+  }
+
+  async function addPlanPackage(file: File) {
+    openNewPlan(await withEditorAccess(importPlan(file)))
+  }
+
+  async function updatePlan(
+    next: Plan,
+    keepAddressConflicts?: AddressConflictApproval[]
+  ) {
+    const saved = await withEditorAccess(savePlan(next, keepAddressConflicts))
+    setSnapshot((current) =>
+      current?.id === saved.id && current.revision < saved.revision
+        ? saved
+        : current
+    )
+    setPlans((previous) =>
+      previous?.map((summary) =>
+        summary.id === saved.id ? { id: saved.id, name: saved.name } : summary
+      )
+    )
+  }
+
+  return {
+    plans,
+    plan,
+    planId,
+    failed:
+      listFailed || (failedPlanId !== undefined && failedPlanId === planId),
+    loading: !plans || (planId !== undefined && !plan),
+    selectPlan,
+    addPlan,
+    exportPlan: (id: string) => withEditorAccess(exportPlan(id)),
+    importPlan: addPlanPackage,
+    savePlan: updatePlan,
+    withEditorAccess,
+    refreshPlan: () => setReadVersion((version) => version + 1),
+  }
+}

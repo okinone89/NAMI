@@ -1,4 +1,5 @@
-"""Run after dotnet build src/Nami.Api. PostgreSQL server tools must be on PATH."""
+"""Run after dotnet build tests/PlanPersistence. PostgreSQL server tools must be on PATH."""
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -13,10 +14,11 @@ from urllib.request import urlopen
 API = Path(__file__).resolve().parents[1] / "src/Nami.Api"
 
 
-def check_startup(directory, settings):
+@contextmanager
+def running_api(directory, settings, executable=API / "bin/Debug/net10.0/Nami.Api.dll"):
     with (directory / "api.log").open("w+") as log:
         process = subprocess.Popen(
-            ["dotnet", str(API / "bin/Debug/net10.0/Nami.Api.dll"), "--urls", "http://127.0.0.1:0"],
+            ["dotnet", str(executable), "--urls", "http://127.0.0.1:0"],
             cwd=API, env={**os.environ, **settings,
                           "Logging__LogLevel__Microsoft.Hosting.Lifetime": "Information"},
             stdout=log, stderr=subprocess.STDOUT,
@@ -28,9 +30,7 @@ def check_startup(directory, settings):
                     raise AssertionError(output)
                 address = re.search(r"Now listening on: (http://127\.0\.0\.1:\d+)", output)
                 if address:
-                    with urlopen(address[1] + "/health", timeout=5) as response:
-                        if response.status != 200 or json.load(response) != {"status": "ready"}:
-                            raise AssertionError("Unexpected readiness response")
+                    yield address[1]
                     return
                 time.sleep(0.05)
             raise AssertionError("API startup timed out: " + output)
@@ -40,13 +40,46 @@ def check_startup(directory, settings):
             process.wait(timeout=10)
 
 
+@contextmanager
+def postgres_settings(directory):
+    cluster = str(directory / "cluster")
+    subprocess.run(["initdb", "-D", cluster, "-U", "nami", "-A", "trust",
+                    "--no-locale"], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["pg_ctl", "-D", cluster, "-l", str(directory / "pg.log"),
+                    "-o", f"-k '{directory}' -c listen_addresses='' -p 5432", "-w", "start"],
+                   check=True, stdout=subprocess.DEVNULL)
+    try:
+        yield {"Database__Provider": "PostgreSQL",
+               "ConnectionStrings__Nami": f"Host={directory};Port=5432;Database=postgres;Username=nami"}
+    finally:
+        subprocess.run(["pg_ctl", "-D", cluster, "-m", "fast", "-w", "stop"], check=True,
+                       stdout=subprocess.DEVNULL)
+
+
+def check_startup(directory, settings):
+    with running_api(directory, settings) as address:
+        with urlopen(address + "/health", timeout=5) as response:
+            if response.status != 200 or json.load(response) != {"status": "ready"}:
+                raise AssertionError("Unexpected readiness response")
+
+
+def run_plan_test(settings, phase, *arguments):
+    executable = API.parents[1] / "tests/PlanPersistence/bin/Debug/net10.0/PlanPersistence.dll"
+    return subprocess.check_output(
+        ["dotnet", str(executable), phase, *arguments],
+        cwd=API, env={**os.environ, **settings}, text=True, timeout=30,
+    )
+
+
 class DatabaseStartup(unittest.TestCase):
     def exercise(self, directory, settings, sql):
         check_startup(directory, settings)
-        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "2")
-        sql("INSERT INTO plans (id, name) VALUES ('line-1', 'Assembly')")
+        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "4")
+        plan_ids = run_plan_test(settings, "create").splitlines()
         check_startup(directory, settings)
-        self.assertEqual(sql("SELECT name FROM plans WHERE id='line-1'"), "Assembly")
+        run_plan_test(settings, "reload", *plan_ids)
+        check_startup(directory, settings)
+        run_plan_test(settings, "verify-edits", *plan_ids)
 
         # Restore the original v1 schema in this disposable database.
         sql("DROP TABLE plans")
@@ -56,8 +89,9 @@ class DatabaseStartup(unittest.TestCase):
         sql("CREATE TABLE plans (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL)")
         sql("INSERT INTO plans VALUES ('line-1', 'Assembly')")
         check_startup(directory, settings)
-        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "2")
+        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "4")
         self.assertEqual(sql("SELECT name FROM plans WHERE id='line-1'"), "Assembly")
+        run_plan_test(settings, "legacy", "line-1")
         sql("DROP INDEX plans_name_idx")  # The upgrade physically recreated the index.
 
     def test_sqlite(self):
@@ -75,22 +109,14 @@ class DatabaseStartup(unittest.TestCase):
     def test_postgresql(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            cluster = str(directory / "cluster")
-            subprocess.run(["initdb", "-D", cluster, "-U", "nami", "-A", "trust",
-                            "--no-locale"], check=True, stdout=subprocess.DEVNULL)
-            subprocess.run(["pg_ctl", "-D", cluster, "-l", str(directory / "pg.log"),
-                            "-o", f"-k '{tmp}' -c listen_addresses='' -p 5432", "-w", "start"],
-                           check=True, stdout=subprocess.DEVNULL)
-            try:
+            with postgres_settings(directory) as settings:
                 def sql(statement):
                     return subprocess.check_output(
                         ["psql", "-XAt", "-v", "ON_ERROR_STOP=1", "-h", tmp, "-p", "5432",
                          "-U", "nami", "-d", "postgres", "-c", statement], text=True).strip()
 
-                self.exercise(directory, {"Database__Provider": "PostgreSQL",
-                              "ConnectionStrings__Nami": f"Host={tmp};Port=5432;Database=postgres;Username=nami"}, sql)
-            finally:
-                subprocess.run(["pg_ctl", "-D", cluster, "-m", "fast", "-w", "stop"], check=True)
+                self.exercise(directory, settings, sql)
+
 
 
 if __name__ == "__main__":
