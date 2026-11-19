@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from "react"
+import { ComponentAppearanceFields } from "@/components/component-appearance-fields"
 import { ComponentInterfaceFields } from "@/components/component-interface-fields"
 import { ProtocolProfileDetails } from "@/components/protocol-profile-details"
 import { Button } from "@/components/ui/button"
@@ -43,6 +44,7 @@ export function ComponentEditor({
   )
   const [ports, setPorts] = useState(savedPorts)
   const [busy, setBusy] = useState(false)
+  const [readingIcon, setReadingIcon] = useState(false)
   const [error, setError] = useState("")
   const guests = plan.components.filter((guest) => guest.hostId === draft.id)
   const isVirtualMachine = draft.type.trim().toLowerCase() === "vm"
@@ -62,10 +64,19 @@ export function ComponentEditor({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (readingIcon) return
+    if (draft.appearance?.kind === "custom" && !draft.appearance.imageData) {
+      setError("Choose a custom icon before saving.")
+      return
+    }
     const updated = {
       ...draft,
       name: draft.name.trim(),
       type: draft.type.trim(),
+      appearance:
+        draft.appearance?.kind === "shape"
+          ? { ...draft.appearance, label: draft.appearance.label.trim() }
+          : draft.appearance,
       hostId: isVirtualMachine ? draft.hostId : null,
     }
     if (
@@ -208,6 +219,13 @@ export function ComponentEditor({
                   </Field>
                 )}
               </FieldGroup>
+              <ComponentAppearanceFields
+                component={draft}
+                onReadingIconChange={setReadingIcon}
+                onChange={(appearance) =>
+                  setDraft((current) => ({ ...current, appearance }))
+                }
+              />
               <GuestList guests={guests} />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-medium">Interfaces</h3>
@@ -258,7 +276,11 @@ export function ComponentEditor({
               >
                 Cancel
               </Button>
-              <Button type="submit" className="min-h-11" disabled={busy}>
+              <Button
+                type="submit"
+                className="min-h-11"
+                disabled={busy || readingIcon}
+              >
                 Save component
               </Button>
             </div>

@@ -19,6 +19,7 @@ internal static class PlanValidation
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(component.Name);
             ArgumentException.ThrowIfNullOrWhiteSpace(component.Type);
+            component.Appearance?.Validate();
             if (component.HostId is { } hostId &&
                 (!string.Equals(component.Type, "vm", StringComparison.OrdinalIgnoreCase) ||
                  !components.TryGetValue(hostId, out var host) ||
