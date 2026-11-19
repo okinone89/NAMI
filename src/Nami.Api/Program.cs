@@ -1,3 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Nami.Api.Plans;
+
 var app = NamiApplication.Build(args);
 app.Run();
 
@@ -8,6 +12,9 @@ internal static class NamiApplication
         var builder = WebApplication.CreateBuilder(args);
         builder.Services.AddSingleton(timeProvider ?? TimeProvider.System);
         builder.Services.AddSingleton<EditorSessions>();
+        builder.Services.AddSingleton(new PlanStore(builder.Configuration, builder.Environment.ContentRootPath));
+        builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(
+            new JsonStringEnumConverter<LinkMedium>(JsonNamingPolicy.CamelCase, allowIntegerValues: false)));
         var app = builder.Build();
 
         using (var database = Database.Open(app.Configuration, app.Environment.ContentRootPath))
@@ -19,6 +26,7 @@ internal static class NamiApplication
         app.UseMiddleware<EditorSessionGuard>();
         app.MapGet("/health", () => Results.Ok(new { status = "ready" }));
         app.MapEditorSession();
+        app.MapPlans();
         return app;
     }
 }

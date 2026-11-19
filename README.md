@@ -46,6 +46,7 @@ On macOS or Linux, install Python 3 and put the PostgreSQL server utilities (`in
 ```sh
 dotnet build tests/PlanPersistence
 python3 tests/startup.py
+python3 tests/plan_api.py
 ```
 
 To run the editor session HTTP tests with a controllable clock, build and run the separate loopback test host through the Python suite:
@@ -65,6 +66,6 @@ npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite (normally http://localhost:5173). The diagram and interface table share the empty plan in `frontend/public/fixtures/empty-plan.json`. Both views work with the API stopped. To run them alongside the local API, start the API in another terminal using the command above. Vite forwards `/api` and `/health` to the API on port 5080. Plan data comes from the fixture until the API exposes plan reads.
+Start the API in another terminal using the command above, then open the local URL printed by Vite (normally http://localhost:5173). Vite forwards `/api` and `/health` to the API on port 5080. Choose a plan with **Open plan**. After unlocking editing, use **New plan**, **Add network**, or **Add component** to build the inventory. Select a component in either view to open its details and interfaces.
 
-The workspace uses shadcn preset `b2CRHdRTM`. Its generated configuration and theme are in `frontend/components.json` and `frontend/src/index.css`. From `frontend`, run `npm run build` to typecheck and produce the Vite production bundle in `dist/`. CI runs that build and the desktop and phone browser tests. To run the tests locally, use `npx playwright install chromium --only-shell` followed by `npm test`.
+The workspace uses shadcn preset `b2CRHdRTM`. Its generated configuration and theme are in `frontend/components.json` and `frontend/src/index.css`. From `frontend`, run `npm run build` to typecheck and produce the Vite production bundle in `dist/`. CI runs that build and the desktop and phone browser tests. To run the tests locally, install the .NET 10 SDK and run `npx playwright install chromium --only-shell` followed by `npm test`. Playwright starts Vite and an API with a disposable SQLite database. Set `NAMI_TEST_WEB_PORT` and `NAMI_TEST_API_PORT` to override the default ports 5174 and 5081.

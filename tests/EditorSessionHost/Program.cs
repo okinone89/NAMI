@@ -9,8 +9,8 @@ var plans = new ConcurrentDictionary<string, string>(new Dictionary<string, stri
 });
 
 // Representative plan endpoints run through the same HTTP pipeline as the API.
-app.MapGet("/api/plans/{id}", (string id) => TypedResults.Ok(new PlanName(plans[id])));
-app.MapPut("/api/plans/{id}", (string id, PlanName plan) =>
+app.MapGet("/api/test-plans/{id}", (string id) => TypedResults.Ok(new PlanName(plans[id])));
+app.MapPut("/api/test-plans/{id}", (string id, PlanName plan) =>
 {
     plans[id] = plan.Name;
     return TypedResults.NoContent();
