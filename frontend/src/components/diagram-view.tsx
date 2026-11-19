@@ -266,7 +266,17 @@ export function DiagramView({
           setFocusedNetworkId(result.networkId)
           setHighlightedResult({ ...result })
         }}
-      />
+      >
+        {canEdit && plan.components.length > 0 && (
+          <Button
+            variant="outline"
+            className="min-h-11"
+            onClick={() => setLinkSelection(null)}
+          >
+            Add link
+          </Button>
+        )}
+      </DiagramSearch>
       {(canEdit || plan.links.length > 0) && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
           {canEdit && (
@@ -275,15 +285,6 @@ export function DiagramView({
             </p>
           )}
           {plan.links.length > 0 && <LinkLegend />}
-          {canEdit && plan.components.length > 0 && (
-            <Button
-              variant="outline"
-              className="ml-auto min-h-11"
-              onClick={() => setLinkSelection(null)}
-            >
-              Add link
-            </Button>
-          )}
         </div>
       )}
       {error && (
