@@ -209,6 +209,8 @@ test("place new components and networks by dragging their add controls onto the 
     canvas.getByRole("button", { name: "Packaging PLC" })
   ).toBeVisible()
 
+  // Scroll before the drag so the drop point does not move the source off the pointer.
+  await canvas.scrollIntoViewIfNeeded()
   await page.getByRole("button", { name: "Add network" }).dragTo(canvas, {
     targetPosition: { x: 54, y: 208 },
   })

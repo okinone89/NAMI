@@ -48,6 +48,12 @@ test("download a plan and reopen an imported copy with its diagram and interface
             profinet: { stationName: "panel-1", roles: ["device"] },
           },
         },
+        {
+          id: "drive-lan",
+          componentId: "drive",
+          name: "LAN",
+          networkId: "cell",
+        },
       ],
       links: [
         {
@@ -123,7 +129,9 @@ test("download a plan and reopen an imported copy with its diagram and interface
 
   await page.getByRole("button", { name: "Table", exact: true }).click()
   const table = page.getByRole("region", { name: "Table", exact: true })
-  const row = table.getByRole("row").filter({ hasText: "Operator panel" })
+  const row = table.getByRole("row").filter({
+    has: page.getByRole("button", { name: "Operator panel", exact: true }),
+  })
   await expect(row.getByText("192.0.2.18", { exact: true })).toBeVisible()
   await expect(row.getByText("Cell LAN", { exact: true })).toBeVisible()
   await row.getByRole("button", { name: "Operator panel", exact: true }).click()
