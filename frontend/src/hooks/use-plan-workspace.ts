@@ -2,7 +2,9 @@ import { useEffect, useState } from "react"
 import type { AddressConflictApproval } from "@/lib/address-issues"
 import {
   createPlan,
+  exportPlan,
   getPlan,
+  importPlan,
   listPlans,
   PlanRequestError,
   savePlan,
@@ -60,7 +62,7 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     setSelection(id)
   }
 
-  async function write<T>(operation: Promise<T>): Promise<T> {
+  async function withEditorAccess<T>(operation: Promise<T>): Promise<T> {
     try {
       return await operation
     } catch (error) {
@@ -70,8 +72,7 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     }
   }
 
-  async function addPlan(name: string) {
-    const created = await write(createPlan(name))
+  function openNewPlan(created: Plan) {
     setPlans((previous) => [
       ...(previous ?? []),
       { id: created.id, name: created.name },
@@ -80,11 +81,19 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     selectPlan(created.id)
   }
 
+  async function addPlan(name: string) {
+    openNewPlan(await withEditorAccess(createPlan(name)))
+  }
+
+  async function addPlanPackage(file: File) {
+    openNewPlan(await withEditorAccess(importPlan(file)))
+  }
+
   async function updatePlan(
     next: Plan,
     keepAddressConflicts?: AddressConflictApproval[]
   ) {
-    const saved = await write(savePlan(next, keepAddressConflicts))
+    const saved = await withEditorAccess(savePlan(next, keepAddressConflicts))
     setSnapshot((current) =>
       current?.id === saved.id && current.revision < saved.revision
         ? saved
@@ -106,6 +115,8 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     loading: !plans || (planId !== undefined && !plan),
     selectPlan,
     addPlan,
+    exportPlan: (id: string) => withEditorAccess(exportPlan(id)),
+    importPlan: addPlanPackage,
     savePlan: updatePlan,
     refreshPlan: () => setReadVersion((version) => version + 1),
   }

@@ -536,6 +536,7 @@ function PreviewRow({
       </div>
       {values &&
         (row.hasChanges ||
+          row.clear.length > 0 ||
           row.errors.length > 0 ||
           row.addressIssues.length > 0) && (
           <div className="grid gap-2 sm:grid-cols-2">

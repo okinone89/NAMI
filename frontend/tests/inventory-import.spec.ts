@@ -55,6 +55,13 @@ async function openInventory(page: Page) {
           networkId: "pack",
           ipv4: "192.168.1.20",
         },
+        {
+          id: "port-d",
+          componentId: "plc-b",
+          name: "LAN D",
+          networkId: "pack",
+          ipv4: null,
+        },
       ],
     } satisfies Plan,
   })
@@ -97,6 +104,7 @@ test("pasted rows can be mapped, reviewed, corrected, cleared, or skipped", asyn
         "Asset\tAdapter\tAddress\tSegment",
         "Capper PLC\tLAN B\t192.168.1.10\tPackaging",
         "Packer PLC\tLAN C\t\tPackaging",
+        "Capper PLC\tLAN D\t\tPackaging",
       ].join("\n")
     )
   await dialog.getByRole("button", { name: "Load pasted rows" }).click()
@@ -110,6 +118,7 @@ test("pasted rows can be mapped, reviewed, corrected, cleared, or skipped", asyn
 
   const capper = dialog.getByRole("region", { name: "Row 2" })
   const packer = dialog.getByRole("region", { name: "Row 3" })
+  const unassigned = dialog.getByRole("region", { name: "Row 4" })
   await expect(capper.getByText("Matched by name")).toBeVisible()
   await expect(capper.getByRole("group", { name: "Before" })).toContainText(
     "192.168.1.20"
@@ -132,11 +141,16 @@ test("pasted rows can be mapped, reviewed, corrected, cleared, or skipped", asyn
 
   await capper.getByLabel("Clear IPv4 value").check()
   await packer.getByLabel("Skip row").check()
+  await unassigned.getByRole("button", { name: "Correct row" }).click()
+  await unassigned.getByLabel("Clear IPv4 value").check()
   await dialog.getByRole("button", { name: "Update preview" }).click()
   await expect(capper.getByRole("group", { name: "After" })).toContainText(
     "Clear value"
   )
   await expect(packer.getByText("Skipped", { exact: true })).toBeVisible()
+  await expect(unassigned.getByRole("group", { name: "After" })).toContainText(
+    "Clear value"
+  )
 
   const current: Plan = await (
     await page.request.get(`/api/plans/${planId}`)
@@ -144,6 +158,7 @@ test("pasted rows can be mapped, reviewed, corrected, cleared, or skipped", asyn
   expect(current.interfaces.map((port) => port.ipv4)).toEqual([
     "192.168.1.10",
     "192.168.1.20",
+    null,
   ])
 })
 

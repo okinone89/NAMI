@@ -18,13 +18,14 @@ internal sealed class EditorSessionGuard(RequestDelegate next, IHostEnvironment 
             return;
         }
 
-        if (!sessionEndpoint && (!isRead || context.Request.Path.StartsWithSegments("/api")))
+        bool requiresEditor = !isRead || endpoint.Metadata.GetMetadata<RequireEditorSession>() is not null;
+        if (!sessionEndpoint && (requiresEditor || context.Request.Path.StartsWithSegments("/api")))
         {
             var token = context.Request.Cookies[EditorSessionEndpoints.CookieName(environment)];
             var expiresAt = sessions.GetExpiry(token, renew: true);
-            if (!isRead && !expiresAt.HasValue)
+            if (requiresEditor && !expiresAt.HasValue)
             {
-                await Results.Problem(statusCode: 401, title: "Unlock editing to make changes")
+                await Results.Problem(statusCode: 401, title: isRead ? "Unlock editing to export a plan" : "Unlock editing to make changes")
                     .ExecuteAsync(context);
                 return;
             }
@@ -49,3 +50,5 @@ internal sealed class EditorSessionGuard(RequestDelegate next, IHostEnvironment 
 
 // Session lifecycle operations are the only unsafe endpoints accessible without an active session.
 internal sealed class EditorSessionEndpoint;
+
+internal sealed class RequireEditorSession;

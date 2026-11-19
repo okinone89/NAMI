@@ -9,6 +9,7 @@ import { EditorSessionControls } from "@/components/editor-session"
 import { useEditorSession } from "@/hooks/use-editor-session"
 import { usePlanWorkspace } from "@/hooks/use-plan-workspace"
 import { PlanNameDialog } from "@/components/plan-name-dialog"
+import { PlanPackageControls } from "@/components/plan-package-controls"
 import { PlanNetworks } from "@/components/plan-networks"
 import { ComponentEditor } from "@/components/component-editor"
 import { DiagramView } from "@/components/diagram-view"
@@ -114,6 +115,13 @@ export default function App() {
             >
               New plan
             </Button>
+          )}
+          {editorSession.canEdit && plans && (
+            <PlanPackageControls
+              plan={plan}
+              onExport={workspace.exportPlan}
+              onImport={workspace.importPlan}
+            />
           )}
         </div>
         <div className="mb-5 flex flex-wrap items-end justify-between gap-5">

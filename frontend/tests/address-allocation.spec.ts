@@ -87,7 +87,9 @@ test("a saved pool skips assigned, reserved, and excluded IPv4 addresses", async
   await network.getByRole("button", { name: "Save network" }).click()
   await expect(network).toBeHidden()
 
-  const address = page.getByLabel("IPv4 address for Filler PLC / LAN B")
+  const address = page.getByLabel("IPv4 address for Filler PLC / LAN B", {
+    exact: true,
+  })
   await suggest.click()
   const suggestion = page.getByRole("dialog", { name: "Suggest IPv4 address" })
   await suggestion.getByRole("button", { name: "Preview suggestion" }).click()
@@ -104,7 +106,7 @@ test("a saved pool skips assigned, reserved, and excluded IPv4 addresses", async
   await page.getByRole("button", { name: "Table", exact: true }).click()
   await expect(address).toHaveValue("192.168.1.30")
   await expect(
-    page.getByLabel("IPv4 address for Filler PLC / LAN A")
+    page.getByLabel("IPv4 address for Filler PLC / LAN A", { exact: true })
   ).toHaveValue("192.168.1.20")
 })
 
@@ -198,15 +200,27 @@ test("batch assignment shows exhaustion and requires confirmation of a refreshed
   await confirm.click()
   await expect(dialog).toBeHidden()
   await expect(
-    page.getByLabel("IPv4 address for Filler PLC / LAN A")
+    page.getByRole("textbox", {
+      name: "IPv4 address for Filler PLC / LAN A",
+      exact: true,
+    })
   ).toHaveValue("192.168.1.20")
   await expect(
-    page.getByLabel("IPv4 address for Filler PLC / LAN B")
+    page.getByRole("textbox", {
+      name: "IPv4 address for Filler PLC / LAN B",
+      exact: true,
+    })
   ).toHaveValue("192.168.1.31")
   await expect(
-    page.getByLabel("IPv4 address for Filler PLC / LAN C")
+    page.getByRole("textbox", {
+      name: "IPv4 address for Filler PLC / LAN C",
+      exact: true,
+    })
   ).toHaveValue("192.168.1.32")
   await expect(
-    page.getByLabel("IPv4 address for Filler PLC / LAN D")
+    page.getByRole("textbox", {
+      name: "IPv4 address for Filler PLC / LAN D",
+      exact: true,
+    })
   ).toHaveValue("192.168.1.30")
 })
