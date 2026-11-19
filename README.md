@@ -110,7 +110,7 @@ The first-release run on macOS with .NET SDK 10.0.402, Node.js 24.22.0, and Post
 
 | Check | Result |
 | --- | --- |
-| HTTP integration suite | 36 passed, including schema setup and restart, exact eight-hour expiry and passphrase rotation on persisted plans, stale allocation and import, conditional undo, and all four transfer directions. |
+| HTTP integration suite | 37 passed, including schema setup and restart, exact eight-hour expiry and passphrase rotation on persisted plans, stale allocation and import, conditional undo, concurrent SQLite saves during a read, and all four transfer directions. |
 | Chromium with SQLite | 88 passed, with 12 skips for viewport and input combinations assigned to the other project. |
 | Chromium with PostgreSQL | 88 passed, with the same 12 viewport and input skips. |
 | Cross-provider transfer in Chromium | 4 passed, covering both provider directions on desktop and phone. |
