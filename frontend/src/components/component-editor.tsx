@@ -1,6 +1,10 @@
 import { useId, useState, type FormEvent } from "react"
 import { ComponentAppearanceFields } from "@/components/component-appearance-fields"
 import { ComponentInterfaceFields } from "@/components/component-interface-fields"
+import {
+  AddressSaveFeedback,
+  PersistedIpv4Issues,
+} from "@/components/ipv4-issues"
 import { ProtocolProfileDetails } from "@/components/protocol-profile-details"
 import { Button } from "@/components/ui/button"
 import {
@@ -11,14 +15,20 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldGroup, FieldLabel, FieldSet } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import type { Component, Plan, PlanInterface } from "@/lib/plans"
+import type { AddressConflictApproval } from "@/lib/address-issues"
+import type {
+  Component,
+  Plan,
+  PlanInterface,
+  SavePlanSnapshot,
+} from "@/lib/plans"
 
 type Props = {
   plan: Plan
   component?: Component
   canEdit: boolean
   onClose: () => void
-  savePlan: (plan: Plan) => Promise<void>
+  savePlan: SavePlanSnapshot
 }
 
 export function ComponentEditor({
@@ -45,11 +55,12 @@ export function ComponentEditor({
   const [ports, setPorts] = useState(savedPorts)
   const [busy, setBusy] = useState(false)
   const [readingIcon, setReadingIcon] = useState(false)
-  const [error, setError] = useState("")
+  const [failure, setFailure] = useState<unknown>()
   const guests = plan.components.filter((guest) => guest.hostId === draft.id)
   const isVirtualMachine = draft.type.trim().toLowerCase() === "vm"
 
   function addInterface() {
+    setFailure(undefined)
     setPorts((current) => [
       ...current,
       {
@@ -62,11 +73,15 @@ export function ComponentEditor({
     ])
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (readingIcon) return
+    void saveComponent()
+  }
+
+  async function saveComponent(approvals?: AddressConflictApproval[]) {
+    if (busy || readingIcon) return
     if (draft.appearance?.kind === "custom" && !draft.appearance.imageData) {
-      setError("Choose a custom icon before saving.")
+      setFailure(new Error("Choose a custom icon before saving."))
       return
     }
     const updated = {
@@ -84,7 +99,11 @@ export function ComponentEditor({
       !updated.type ||
       ports.some((port) => !port.name.trim())
     ) {
-      setError("Enter a component name, type, and a name for each interface.")
+      setFailure(
+        new Error(
+          "Enter a component name, type, and a name for each interface."
+        )
+      )
       return
     }
 
@@ -110,16 +129,11 @@ export function ComponentEditor({
       : [...plan.components, updated]
 
     setBusy(true)
-    setError("")
     try {
-      await savePlan({ ...plan, components, interfaces })
+      await savePlan({ ...plan, components, interfaces }, approvals)
       onClose()
-    } catch (failure) {
-      setError(
-        failure instanceof Error
-          ? failure.message
-          : "Unable to save the component. Try again."
-      )
+    } catch (error) {
+      setFailure(error)
       setBusy(false)
     }
   }
@@ -141,7 +155,11 @@ export function ComponentEditor({
           </DialogTitle>
         </DialogHeader>
         {canEdit ? (
-          <form className="flex min-w-0 flex-col gap-4" onSubmit={submit}>
+          <form
+            className="flex min-w-0 flex-col gap-4"
+            onSubmit={submit}
+            onChange={() => setFailure(undefined)}
+          >
             <FieldSet disabled={busy} className="min-w-0">
               <FieldGroup className="gap-3 sm:grid sm:grid-cols-2">
                 <Field>
@@ -243,6 +261,11 @@ export function ComponentEditor({
                   key={port.id}
                   port={port}
                   networks={plan.networks}
+                  addressIssues={plan.addressIssues?.filter((issue) =>
+                    issue.interfaces.some(
+                      (item) => item.interfaceId === port.id
+                    )
+                  )}
                   onChange={(updated) =>
                     setPorts((current) =>
                       current.map((item) =>
@@ -253,19 +276,22 @@ export function ComponentEditor({
                   onDiscard={
                     savedPorts.some((saved) => saved.id === port.id)
                       ? undefined
-                      : () =>
+                      : () => {
+                          setFailure(undefined)
                           setPorts((current) =>
                             current.filter((item) => item.id !== port.id)
                           )
+                        }
                   }
                 />
               ))}
             </FieldSet>
-            {error && (
-              <p role="alert" className="text-destructive">
-                {error}
-              </p>
-            )}
+            <AddressSaveFeedback
+              failure={failure}
+              fallback="Unable to save the component. Try again."
+              disabled={busy || readingIcon}
+              onKeep={(approvals) => void saveComponent(approvals)}
+            />
             <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="button"
@@ -375,6 +401,15 @@ function ComponentDetails({
                     <dd>{port.ipv4 ?? "Unassigned"}</dd>
                   </div>
                 </dl>
+                <PersistedIpv4Issues
+                  issues={
+                    plan.addressIssues?.filter((issue) =>
+                      issue.interfaces.some(
+                        (item) => item.interfaceId === port.id
+                      )
+                    ) ?? []
+                  }
+                />
                 <ProtocolProfileDetails profiles={port.protocolProfiles} />
               </li>
             ))}

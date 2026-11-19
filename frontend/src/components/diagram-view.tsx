@@ -1,5 +1,5 @@
 import { useMemo, useState, type DragEvent } from "react"
-import { IconNetwork, IconSchema } from "@tabler/icons-react"
+import { IconAlertTriangle, IconNetwork, IconSchema } from "@tabler/icons-react"
 import { DiagramComponentLabel } from "@/components/diagram-component-label"
 import { Button } from "@/components/ui/button"
 import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
@@ -121,6 +121,12 @@ export function DiagramView({
     ...boxes.map(({ y, height }) => y + height + 72)
   )
 
+  const flaggedComponents = new Set(
+    plan.addressIssues
+      ?.filter((issue) => issue.code === "duplicateIpv4")
+      .flatMap((issue) => issue.interfaces.map((port) => port.componentId))
+  )
+
   function renderComponent(component: Component, enclosure?: DiagramBox) {
     const box = components.get(component.id)!
     const initial = componentBoxes.get(component.id)!
@@ -138,6 +144,11 @@ export function DiagramView({
         key={component.id}
         variant="outline"
         aria-label={component.name}
+        aria-description={
+          flaggedComponents.has(component.id)
+            ? "IPv4 address conflict"
+            : undefined
+        }
         aria-haspopup="dialog"
         className={`pointer-events-auto absolute z-20 flex-col items-start gap-1 px-4 py-3 text-left whitespace-normal transition-colors ${canEdit ? movable : ""}`}
         style={{
@@ -154,6 +165,13 @@ export function DiagramView({
         )}
       >
         <DiagramComponentLabel component={component} />
+        {flaggedComponents.has(component.id) && (
+          <IconAlertTriangle
+            role="img"
+            aria-label="IPv4 address conflict"
+            className="absolute -top-2 -right-2 size-5 border bg-background text-destructive"
+          />
+        )}
       </Button>
     )
   }

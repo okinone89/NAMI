@@ -59,9 +59,20 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
     }
 
     // An unsuccessful save means the plan is missing or its revision has changed.
-    public async Task<bool> SaveAsync(Plan plan, CancellationToken cancellationToken = default)
+    public Task<bool> SaveAsync(Plan plan, CancellationToken cancellationToken = default) =>
+        SaveAsync(plan, [], cancellationToken);
+
+    public async Task<bool> SaveAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
+        CancellationToken cancellationToken = default)
     {
         PlanValidation.Validate(plan);
+        var current = await GetAsync(plan.Id, cancellationToken);
+        if (current is null || current.Revision != plan.Revision)
+            return false;
+
+        var issues = AddressValidation.BlockingIssues(current, plan, approvals);
+        if (issues.Count > 0)
+            throw new AddressValidationException(issues);
         var topology = new Topology(plan.Networks, plan.Components, plan.Interfaces, plan.Links);
         await using var database = Database.Open(configuration, contentRoot);
         await using var command = database.CreateCommand();

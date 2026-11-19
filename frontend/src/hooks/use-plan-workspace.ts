@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import type { AddressConflictApproval } from "@/lib/address-issues"
 import {
   createPlan,
   getPlan,
@@ -79,8 +80,11 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     selectPlan(created.id)
   }
 
-  async function updatePlan(next: Plan) {
-    const saved = await write(savePlan(next))
+  async function updatePlan(
+    next: Plan,
+    keepAddressConflicts?: AddressConflictApproval[]
+  ) {
+    const saved = await write(savePlan(next, keepAddressConflicts))
     setSnapshot((current) =>
       current?.id === saved.id && current.revision < saved.revision
         ? saved
