@@ -37,3 +37,17 @@ On macOS or Linux, install Python 3 and put the PostgreSQL server utilities (`in
 dotnet build src/Nami.Api
 python3 tests/startup.py
 ```
+
+## React workspace
+
+Use Node.js 24 and npm. From the repository root, run
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+Open the local URL printed by Vite (normally http://localhost:5173). The diagram and interface table share the empty plan in `frontend/public/fixtures/empty-plan.json`. Both views work with the API stopped. To run them alongside the local API, start the API in another terminal using the command above. Vite forwards `/health` to the API on port 5080. Plan data comes from the fixture until the API exposes plan reads.
+
+The workspace uses shadcn preset `b2CRHdRTM`. Its generated configuration and theme are in `frontend/components.json` and `frontend/src/index.css`. From `frontend`, run `npm run build` to typecheck and produce the Vite production bundle in `dist/`. CI runs that build and the desktop and phone browser tests. To run the tests locally, use `npx playwright install chromium --only-shell` followed by `npm test`.
