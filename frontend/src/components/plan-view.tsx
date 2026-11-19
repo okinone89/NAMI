@@ -6,6 +6,7 @@ export type PlanViewProps = {
   canEdit: boolean
   onSelectComponent: (componentId: string) => void
   savePlan: SavePlanSnapshot
+  refreshPlan?: () => void
 }
 
 export function EmptyPlanView({
