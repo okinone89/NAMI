@@ -118,6 +118,7 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     exportPlan: (id: string) => withEditorAccess(exportPlan(id)),
     importPlan: addPlanPackage,
     savePlan: updatePlan,
+    withEditorAccess,
     refreshPlan: () => setReadVersion((version) => version + 1),
   }
 }

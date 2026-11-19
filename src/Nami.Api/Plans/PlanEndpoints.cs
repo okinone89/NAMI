@@ -47,17 +47,12 @@ internal static class PlanEndpoints
         if (id != request.Id || request.Revision < 0)
             return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Invalid plan identity or revision");
 
-        var plan = new Plan(id, request.Name, request.Revision)
-        {
-            Networks = request.Networks,
-            Components = request.Components,
-            Interfaces = request.Interfaces,
-            Links = request.Links
-        };
+        var plan = request.ApplyTo(new Plan(id, request.Name, request.Revision));
         try
         {
-            if (await store.SaveAsync(plan, request.KeepAddressConflicts ?? [], cancellationToken))
-                return TypedResults.Ok(plan with { Revision = plan.Revision + 1 });
+            var saved = await store.SaveSnapshotAsync(plan, request.KeepAddressConflicts ?? [], cancellationToken);
+            if (saved is not null)
+                return TypedResults.Ok(saved);
         }
         catch (AddressValidationException error)
         {
@@ -84,14 +79,10 @@ internal static class PlanEndpoints
 internal sealed record CreatePlanRequest(string? Name);
 
 /// <summary>A full plan snapshot at the revision opened by the editor.</summary>
-internal sealed record SavePlanRequest
+internal sealed record SavePlanRequest : PlanTopology
 {
     public required string Id { get; init; }
     public required string Name { get; init; }
     public required long Revision { get; init; }
-    public required IReadOnlyList<PlanNetwork> Networks { get; init; }
-    public required IReadOnlyList<Component> Components { get; init; }
-    public required IReadOnlyList<PlanInterface> Interfaces { get; init; }
-    public required IReadOnlyList<PlanLink> Links { get; init; }
     public IReadOnlyList<AddressConflictApproval>? KeepAddressConflicts { get; init; }
 }

@@ -51,7 +51,7 @@ export function InterfaceTable({
   onSelectComponent,
   savePlan,
   refreshPlan,
-  onEditorExpired,
+  withEditorAccess,
 }: PlanViewProps) {
   const id = useId()
   const [query, setQuery] = useState("")
@@ -171,12 +171,12 @@ export function InterfaceTable({
         key={plan.id}
         planId={plan.id}
         canEdit={canEdit}
-        onEditorExpired={onEditorExpired}
+        withEditorAccess={withEditorAccess}
         renderActions={(review) => (
           <InventoryCommitAction
             review={review}
             onPlanChanged={refreshPlan}
-            onEditorExpired={onEditorExpired}
+            withEditorAccess={withEditorAccess}
           />
         )}
       >
@@ -185,7 +185,7 @@ export function InterfaceTable({
             planId={plan.id}
             revision={plan.revision}
             onPlanChanged={refreshPlan}
-            onEditorExpired={onEditorExpired}
+            withEditorAccess={withEditorAccess}
           />
         )}
       </InventoryTools>
@@ -479,7 +479,7 @@ export function InterfaceTable({
             planId={plan.id}
             bulk={{ interfaceIds: bulkSelection, networks: plan.networks }}
             close={() => setBulkSelection(undefined)}
-            onEditorExpired={onEditorExpired}
+            withEditorAccess={withEditorAccess}
             renderActions={(review) => (
               <InventoryCommitAction
                 review={{
@@ -491,7 +491,7 @@ export function InterfaceTable({
                 }}
                 bulkEdit
                 onPlanChanged={refreshPlan}
-                onEditorExpired={onEditorExpired}
+                withEditorAccess={withEditorAccess}
               />
             )}
           />
@@ -501,6 +501,7 @@ export function InterfaceTable({
         <AddressAllocationDialog
           plan={plan}
           candidates={allocationCandidates}
+          withEditorAccess={withEditorAccess}
           interfaceId={allocation.interfaceId}
           onClose={() => setAllocation(undefined)}
           onPlanChanged={refreshPlan}

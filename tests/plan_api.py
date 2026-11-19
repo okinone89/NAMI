@@ -80,7 +80,11 @@ class PlanManagement(unittest.TestCase):
             self.assertEqual(request(address, path, "PUT", plan, cookie)[0], 409)
             self.assertEqual(request(address, path, "PUT", {**updated, "id": "elsewhere"}, cookie)[0], 400)
             self.assertEqual(request(address, path, "PUT", {**updated, "networks": []}, cookie)[0], 400)
-            self.assertEqual(request(address, path, "PUT", {"id": updated["id"], "name": "Partial"}, cookie)[0], 400)
+            for field in ("networks", "components", "interfaces", "links"):
+                with self.subTest(missing_topology_field=field):
+                    incomplete = {key: value for key, value in updated.items() if key != field}
+                    self.assertEqual(request(address, path, "PUT", incomplete, cookie)[0], 400)
+            self.assertEqual(request(address, path)[:2], (200, updated))
 
         with running_api(directory, settings) as address:
             status, reopened, _ = request(address, path)

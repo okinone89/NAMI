@@ -91,6 +91,39 @@ test("an exported inventory CSV previews its unchanged interfaces", async ({
   ).toBeVisible()
 })
 
+test("flags conflicting network columns until the editor resolves the mapping", async ({
+  page,
+}) => {
+  const planId = await openInventory(page)
+  await page.getByRole("button", { name: "Import inventory" }).click()
+  const dialog = page.getByRole("dialog", { name: "Import inventory" })
+  await dialog
+    .getByLabel("Spreadsheet rows")
+    .fill("Interface ID,Network ID,Network\nport-b,pack,Isolated packaging")
+  await dialog.getByRole("button", { name: "Load pasted rows" }).click()
+  const preview = dialog.getByRole("button", { name: "Preview import" })
+  const apply = dialog.getByRole("button", { name: "Apply import" })
+  await preview.click()
+  await expect(
+    dialog.getByText(/Network ID and Network identify different networks/)
+  ).toBeVisible()
+  await expect(apply).toBeDisabled()
+
+  await dialog.getByRole("button", { name: "Edit source or mapping" }).click()
+  await dialog.getByLabel("Network ID", { exact: true }).selectOption("")
+  await preview.click()
+  await expect(dialog.getByRole("group", { name: "After" })).toContainText(
+    "Isolated packaging"
+  )
+  await apply.click()
+  await expect(dialog).toBeHidden()
+  const response = await page.request.get("/api/plans/" + planId)
+  const saved: Plan = await response.json()
+  expect(saved.interfaces.find(({ id }) => id === "port-b")?.networkId).toBe(
+    "test"
+  )
+})
+
 test("pasted rows can be mapped, reviewed, corrected, cleared, or skipped", async ({
   page,
 }) => {

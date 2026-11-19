@@ -140,9 +140,11 @@ class InventoryImport(unittest.TestCase):
                             {**port, "ipv4": "192.168.1.24"} if port["id"] == "lan-b" else port
                             for port in after["interfaces"]
                         ]}
-                        self.assertEqual(request(address, path, "PUT", later_edit, cookie)[0], 200)
+                        status, edited, _ = request(address, path, "PUT", later_edit, cookie)
+                        self.assertEqual(status, 200)
                         status, undone, _ = request(address, inventory + "/undo", "POST", change, cookie)
                         self.assertEqual(status, 200)
+                        self.assertEqual(undone["revision"], edited["revision"] + 1)
                         self.assertEqual([component["id"] for component in undone["components"]], ["plc-a", "plc-b"])
                         self.assertEqual([(port["id"], port["ipv4"]) for port in undone["interfaces"]],
                                          [("lan-a", "192.168.1.10"), ("lan-b", "192.168.1.24")])
@@ -229,6 +231,39 @@ class InventoryImport(unittest.TestCase):
                 self.assertEqual(inconsistent["errors"][0]["code"], "inconsistentIds")
                 self.assertEqual(missing["errors"][0]["code"], "unknownInterfaceId")
                 self.assertEqual(request(address, path)[:2], (200, saved))
+
+    def test_preview_requires_network_id_and_name_to_agree(self):
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            with running_api(directory, settings_for(directory)) as address:
+                cookie = unlock(address)
+                path, saved = inventory_plan(address, cookie)
+                saved["networks"].append({"id": "cell-b", "name": "Cell B", "subnet": "192.168.1.0/24"})
+                status, saved, _ = request(address, path, "PUT", saved, cookie)
+                self.assertEqual(status, 200)
+                preview_path = path + "/inventory/preview"
+                row = {"rowNumber": 2, "interfaceId": "lan-a", "ipv4": "192.168.1.30"}
+
+                status, preview, _ = request(address, preview_path, "POST", {"rows": [
+                    {**row, "networkId": "cell-a", "networkName": "Cell B"},
+                ]}, cookie)
+                self.assertEqual(status, 200)
+                self.assertFalse(preview["canApply"])
+                self.assertEqual(preview["rows"][0]["errors"][0]["code"], "inconsistentIds")
+                self.assertEqual(request(address, path)[:2], (200, saved))
+
+                for network_columns, expected_id in (
+                    ({"networkId": "cell-a", "networkName": "Cell A"}, "cell-a"),
+                    ({"networkId": "cell-b"}, "cell-b"),
+                    ({"networkName": "Cell B"}, "cell-b"),
+                ):
+                    with self.subTest(network_columns=network_columns):
+                        status, preview, _ = request(address, preview_path, "POST", {"rows": [
+                            {**row, **network_columns},
+                        ]}, cookie)
+                        self.assertEqual(status, 200)
+                        self.assertTrue(preview["canApply"])
+                        self.assertEqual(preview["rows"][0]["after"]["networkId"], expected_id)
 
     def test_preview_exposes_repeated_targets_and_supports_clear_skip_and_exact_conflict_approval(self):
         with TemporaryDirectory() as tmp:

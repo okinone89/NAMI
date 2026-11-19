@@ -35,7 +35,7 @@ import {
   type InventoryPreviewRow,
   type InventoryValues,
 } from "@/lib/inventory"
-import { PlanRequestError, type PlanNetwork } from "@/lib/plans"
+import type { PlanNetwork, WithEditorAccess } from "@/lib/plans"
 
 export type InventoryReview = {
   request: InventoryPreviewRequest
@@ -54,13 +54,13 @@ export function InventoryTools({
   planId,
   canEdit,
   renderActions,
-  onEditorExpired,
+  withEditorAccess,
   children,
 }: {
   planId: string
   canEdit: boolean
   renderActions?: (review: InventoryReviewActions) => ReactNode
-  onEditorExpired?: () => void
+  withEditorAccess: WithEditorAccess
   children?: ReactNode
 }) {
   const [open, setOpen] = useState(false)
@@ -87,7 +87,7 @@ export function InventoryTools({
               planId={planId}
               close={() => setOpen(false)}
               renderActions={renderActions}
-              onEditorExpired={onEditorExpired}
+              withEditorAccess={withEditorAccess}
             />
           )}
         </Dialog>
@@ -106,13 +106,13 @@ export function InventoryDialog({
   planId,
   close,
   renderActions,
-  onEditorExpired,
+  withEditorAccess,
   bulk,
 }: {
   planId: string
   close: () => void
   renderActions?: (review: InventoryReviewActions) => ReactNode
-  onEditorExpired?: () => void
+  withEditorAccess: WithEditorAccess
   bulk?: BulkSelection
 }) {
   const id = useId()
@@ -166,12 +166,13 @@ export function InventoryDialog({
     setBusy(true)
     setError("")
     try {
-      setReview({ request, preview: await previewInventory(planId, request) })
+      setReview({
+        request,
+        preview: await withEditorAccess(previewInventory(planId, request)),
+      })
       setEdits({})
       if (!review) body.current?.scrollTo(0, 0)
     } catch (failure) {
-      if (failure instanceof PlanRequestError && failure.status === 401)
-        onEditorExpired?.()
       setError(
         failure instanceof Error
           ? failure.message

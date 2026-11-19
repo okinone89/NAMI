@@ -43,14 +43,13 @@ internal static class InventoryEndpoints
 
         var undo = request.BulkEdit ? null : InventoryUndoReceipt.Create(current, preview.Proposed);
         var approvals = draft.KeepAddressConflicts ?? [];
-        var changed = undo is null
-            ? await store.SaveAsync(preview.Proposed, approvals, cancellationToken)
+        var saved = undo is null
+            ? await store.SaveSnapshotAsync(preview.Proposed, approvals, cancellationToken)
             : await store.SaveInventoryAsync(preview.Proposed, approvals, undo, cancellationToken);
-        if (changed)
+        if (saved is not null)
         {
             var status = undo is null ? null : new InventoryUndoStatus(undo.ImportId, true, null);
-            return TypedResults.Ok(new InventoryCommitResponse(
-                preview.Proposed with { Revision = current.Revision + 1 }, status));
+            return TypedResults.Ok(new InventoryCommitResponse(saved, status));
         }
 
         var latest = await store.GetAsync(id, cancellationToken);
@@ -86,10 +85,11 @@ internal static class InventoryEndpoints
         var review = undo.Review(current);
         if (review.Proposed is not { } proposed)
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: review.Status.Reason);
-        if (!await store.SaveInventoryAsync(proposed, review.Approvals, null, cancellationToken))
+        var saved = await store.SaveInventoryAsync(proposed, review.Approvals, null, cancellationToken);
+        if (saved is null)
             return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict,
                 title: "The plan changed while undo was being saved. Review the current plan before trying again.");
-        return TypedResults.Ok(proposed with { Revision = current.Revision + 1 });
+        return TypedResults.Ok(saved);
     }
 
     private static async Task<Results<Ok<InventoryPreviewResponse>, ProblemHttpResult>> Preview(

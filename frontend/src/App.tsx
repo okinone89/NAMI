@@ -35,6 +35,7 @@ type ComponentSelection = {
   componentId: string | null
   position?: DiagramPosition
   onMove?: () => void
+  onPlaced?: (componentId: string) => void
 }
 
 export default function App() {
@@ -53,18 +54,21 @@ export default function App() {
 
   function selectComponent(
     componentId: string | null,
-    options?: Pick<ComponentSelection, "position" | "onMove">
+    options?: Pick<ComponentSelection, "position" | "onMove" | "onPlaced">
   ) {
     if (plan) setSelection({ planId: plan.id, componentId, ...options })
   }
 
-  const saveComponent: SavePlanSnapshot = (next, keepAddressConflicts) => {
+  const saveComponent: SavePlanSnapshot = async (
+    next,
+    keepAddressConflicts
+  ) => {
     const position = activeSelection?.position
     if (!plan || !addingComponent || !position)
       return workspace.savePlan(next, keepAddressConflicts)
 
     const existing = new Set(plan.components.map(({ id }) => id))
-    return workspace.savePlan(
+    await workspace.savePlan(
       {
         ...next,
         components: next.components.map((component) =>
@@ -73,6 +77,8 @@ export default function App() {
       },
       keepAddressConflicts
     )
+    const placed = next.components.find(({ id }) => !existing.has(id))
+    if (placed) activeSelection?.onPlaced?.(placed.id)
   }
 
   const { icon: ViewIcon, heading, component: ActiveView } = views[view]
@@ -187,12 +193,12 @@ export default function App() {
               canEdit={editorSession.canEdit}
               savePlan={workspace.savePlan}
               refreshPlan={workspace.refreshPlan}
-              onEditorExpired={editorSession.refresh}
+              withEditorAccess={workspace.withEditorAccess}
               onSelectComponent={(componentId, onMove) =>
                 selectComponent(componentId, { onMove })
               }
-              onPlaceComponent={(position) =>
-                selectComponent(null, { position })
+              onPlaceComponent={(position, onPlaced) =>
+                selectComponent(null, { position, onPlaced })
               }
             />
           ) : (

@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { linkEndpointLabel, linkMediumLabels } from "@/lib/link-labels"
 import type {
   LinkEndpoint,
@@ -36,6 +37,7 @@ export function LinkInspector({
   const [source, setSource] = useState(link?.source ?? emptyEndpoint)
   const [target, setTarget] = useState(link?.target ?? emptyEndpoint)
   const [medium, setMedium] = useState<LinkMedium>(link?.medium ?? "wired")
+  const [protocol, setProtocol] = useState(link?.protocol ?? "")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
 
@@ -48,7 +50,7 @@ export function LinkInspector({
       source,
       target,
       medium,
-      protocol: link?.protocol ?? null,
+      protocol: protocol.trim() || null,
     }
     const links = link
       ? plan.links.map((current) =>
@@ -135,9 +137,15 @@ export function LinkInspector({
                 ))}
               </select>
             </label>
-            {link?.protocol && (
-              <p className="text-sm">Protocol · {link.protocol}</p>
-            )}
+            <label className="grid gap-1 text-sm">
+              Protocol (optional)
+              <Input
+                className="min-h-11"
+                value={protocol}
+                disabled={busy}
+                onChange={(event) => setProtocol(event.target.value)}
+              />
+            </label>
             {error && (
               <p role="alert" className="text-destructive">
                 {error}

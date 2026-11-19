@@ -1,5 +1,5 @@
 import type { ComponentType } from "react"
-import type { Plan, SavePlanSnapshot } from "@/lib/plans"
+import type { Plan, SavePlanSnapshot, WithEditorAccess } from "@/lib/plans"
 
 export type PlanViewProps = {
   plan: Plan
@@ -7,7 +7,7 @@ export type PlanViewProps = {
   onSelectComponent: (componentId: string, onMove?: () => void) => void
   savePlan: SavePlanSnapshot
   refreshPlan?: () => void
-  onEditorExpired?: () => void
+  withEditorAccess: WithEditorAccess
 }
 
 export function EmptyPlanView({

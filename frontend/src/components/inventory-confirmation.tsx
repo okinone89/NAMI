@@ -8,18 +8,18 @@ import {
   undoInventory,
   type InventoryUndoStatus,
 } from "@/lib/inventory"
-import { PlanRequestError } from "@/lib/plans"
+import type { WithEditorAccess } from "@/lib/plans"
 
 type ChangeCallbacks = {
   onPlanChanged?: () => void
-  onEditorExpired?: () => void
+  withEditorAccess: WithEditorAccess
 }
 
 export function InventoryCommitAction({
   review,
   bulkEdit = false,
   onPlanChanged,
-  onEditorExpired,
+  withEditorAccess,
 }: ChangeCallbacks & {
   review: InventoryReviewActions
   bulkEdit?: boolean
@@ -35,11 +35,8 @@ export function InventoryCommitAction({
     setFailure("")
     setNotice("")
     try {
-      const result = await commitInventory(
-        planId,
-        request,
-        preview.stateToken,
-        bulkEdit
+      const result = await withEditorAccess(
+        commitInventory(planId, request, preview.stateToken, bulkEdit)
       )
       onPlanChanged?.()
       if ("preview" in result) {
@@ -51,8 +48,6 @@ export function InventoryCommitAction({
         review.close()
       }
     } catch (error) {
-      if (error instanceof PlanRequestError && error.status === 401)
-        onEditorExpired?.()
       setFailure(
         error instanceof Error ? error.message : "Unable to apply the changes."
       )
@@ -91,7 +86,7 @@ export function InventoryUndoControl({
   planId,
   revision,
   onPlanChanged,
-  onEditorExpired,
+  withEditorAccess,
 }: ChangeCallbacks & {
   planId: string
   revision: number
@@ -118,12 +113,10 @@ export function InventoryUndoControl({
     setBusy(true)
     setFailure("")
     try {
-      await undoInventory(planId, status.importId)
+      await withEditorAccess(undoInventory(planId, status.importId))
       setStatus(undefined)
       onPlanChanged?.()
     } catch (error) {
-      if (error instanceof PlanRequestError && error.status === 401)
-        onEditorExpired?.()
       setFailure(
         error instanceof Error ? error.message : "Unable to undo the import."
       )

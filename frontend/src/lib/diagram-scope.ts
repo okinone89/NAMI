@@ -12,15 +12,19 @@ export function scopedDiagram(
   if (!network)
     return { layout, visibleNetworks: plan.networks, focused: false }
 
-  const visibleIds = new Set(
-    plan.interfaces
-      .filter(({ networkId }) => networkId === focusedNetworkId)
-      .map(({ componentId }) => componentId)
-  )
-  for (const component of plan.components) {
-    if (component.hostId && visibleIds.has(component.id)) {
-      visibleIds.add(component.hostId)
-    }
+  const directMembers = new Set<string>()
+  const networkedComponents = new Set<string>()
+  for (const { componentId, networkId } of plan.interfaces) {
+    if (networkId !== null) networkedComponents.add(componentId)
+    if (networkId === focusedNetworkId) directMembers.add(componentId)
+  }
+
+  const visibleIds = new Set(directMembers)
+  for (const { id, hostId } of plan.components) {
+    if (!hostId) continue
+    if (directMembers.has(id)) visibleIds.add(hostId)
+    if (directMembers.has(hostId) && !networkedComponents.has(id))
+      visibleIds.add(id)
   }
 
   const componentBoxes = new Map(
