@@ -4,7 +4,7 @@ import type { Plan, SavePlanSnapshot } from "@/lib/plans"
 export type PlanViewProps = {
   plan: Plan
   canEdit: boolean
-  onSelectComponent: (componentId: string) => void
+  onSelectComponent: (componentId: string, onMove?: () => void) => void
   savePlan: SavePlanSnapshot
 }
 

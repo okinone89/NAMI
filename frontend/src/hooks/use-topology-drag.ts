@@ -67,6 +67,10 @@ export function useTopologyDrag(
     if (!item) return
 
     ignoreClick.current = true
+    await place(item)
+  }
+
+  async function place(item: DraggedItem) {
     setPreview(item)
     setSaving(true)
     setError("")
@@ -112,5 +116,5 @@ export function useTopologyDrag(
     }
   }
 
-  return { bind, preview, error }
+  return { bind, place, preview, saving, error }
 }

@@ -33,6 +33,7 @@ type ComponentSelection = {
   planId: string
   componentId: string | null
   position?: DiagramPosition
+  onMove?: () => void
 }
 
 export default function App() {
@@ -51,9 +52,9 @@ export default function App() {
 
   function selectComponent(
     componentId: string | null,
-    position?: DiagramPosition
+    options?: Pick<ComponentSelection, "position" | "onMove">
   ) {
-    if (plan) setSelection({ planId: plan.id, componentId, position })
+    if (plan) setSelection({ planId: plan.id, componentId, ...options })
   }
 
   const saveComponent: SavePlanSnapshot = (next, keepAddressConflicts) => {
@@ -177,8 +178,12 @@ export default function App() {
               plan={plan}
               canEdit={editorSession.canEdit}
               savePlan={workspace.savePlan}
-              onSelectComponent={selectComponent}
-              onPlaceComponent={(position) => selectComponent(null, position)}
+              onSelectComponent={(componentId, onMove) =>
+                selectComponent(componentId, { onMove })
+              }
+              onPlaceComponent={(position) =>
+                selectComponent(null, { position })
+              }
             />
           ) : (
             <div className="grid min-h-[50svh] place-items-center px-5 text-center">
@@ -204,6 +209,7 @@ export default function App() {
           component={selectedComponent}
           canEdit={editorSession.canEdit}
           onClose={() => setSelection(undefined)}
+          onMove={activeSelection?.onMove}
           savePlan={saveComponent}
         />
       )}
