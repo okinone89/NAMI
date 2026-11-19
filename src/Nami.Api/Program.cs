@@ -28,6 +28,7 @@ internal static class NamiApplication
         app.MapEditorSession();
         app.MapPlans();
         app.MapAddressAllocation();
+        app.MapInventory();
         return app;
     }
 }
