@@ -11,12 +11,15 @@ export type PlanSummary = {
 }
 
 export type DiagramPosition = { x: number; y: number }
+export type Ipv4Range = { start: string; end?: string | null }
 
 export type PlanNetwork = {
   id: string
   name: string
   subnet: string | null
   position: DiagramPosition | null
+  allocationPool?: Ipv4Range | null
+  excludedIpv4Ranges?: Ipv4Range[] | null
 }
 
 export type Component = {
@@ -60,6 +63,17 @@ export type SavePlanSnapshot = (
   plan: Plan,
   keepAddressConflicts?: AddressConflictApproval[]
 ) => Promise<void>
+
+export type AddressAllocationPreview = {
+  revision: number
+  canApply: boolean
+  assignments: {
+    interfaceId: string
+    networkId: string | null
+    ipv4: string | null
+    status: "proposed" | "assigned" | "exhausted" | "unavailable"
+  }[]
+}
 
 export class PlanRequestError extends Error {
   readonly status: number
@@ -125,4 +139,41 @@ export async function savePlan(
       body: JSON.stringify({ ...plan, keepAddressConflicts }),
     })
   )
+}
+
+function requestAllocation(
+  id: string,
+  action: "preview" | "commit",
+  data: object
+) {
+  return fetch(`${planPath(id)}/address-allocation/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+}
+
+export async function previewAddressAllocation(
+  id: string,
+  interfaceIds: string[]
+) {
+  return readResponse<AddressAllocationPreview>(
+    await requestAllocation(id, "preview", { interfaceIds })
+  )
+}
+
+export async function commitAddressAllocation(
+  id: string,
+  interfaceIds: string[],
+  preview: AddressAllocationPreview
+) {
+  const response = await requestAllocation(id, "commit", {
+    interfaceIds,
+    revision: preview.revision,
+    assignments: preview.assignments,
+  })
+  if (response.status === 409) {
+    return { preview: (await response.json()) as AddressAllocationPreview }
+  }
+  return { saved: await readResponse<Plan>(response) }
 }

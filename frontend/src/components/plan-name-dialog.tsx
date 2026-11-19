@@ -60,7 +60,10 @@ export function PlanNameDialog({
         if (!open && !busy) onClose()
       }}
     >
-      <DialogContent showCloseButton={false}>
+      <DialogContent
+        showCloseButton={false}
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>

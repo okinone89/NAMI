@@ -5,11 +5,13 @@ import {
   IconArrowsSort,
   IconTable,
 } from "@tabler/icons-react"
+import { AddressAllocationDialog } from "@/components/address-allocation-dialog"
 import { InventoryTools } from "@/components/inventory-tools"
 import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Field, FieldLabel } from "@/components/ui/field"
+import { ConnectionList } from "@/components/connection-list"
 import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
 import type { AddressConflictApproval } from "@/lib/address-issues"
 import type { PlanInterface } from "@/lib/plans"
@@ -43,6 +45,7 @@ export function InterfaceTable({
   canEdit,
   onSelectComponent,
   savePlan,
+  refreshPlan,
 }: PlanViewProps) {
   const id = useId()
   const [query, setQuery] = useState("")
@@ -50,6 +53,22 @@ export function InterfaceTable({
   const [draft, setDraft] = useState<InterfaceDraft>()
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState<unknown>()
+  const [allocation, setAllocation] = useState<{ interfaceId?: string }>()
+  const networksWithSubnets = new Set(
+    plan.networks
+      .filter((network) => network.subnet)
+      .map((network) => network.id)
+  )
+  const allocationCandidates = new Set(
+    plan.interfaces
+      .filter(
+        (port) =>
+          port.ipv4 === null &&
+          port.networkId &&
+          networksWithSubnets.has(port.networkId)
+      )
+      .map((port) => port.id)
+  )
   const flaggedPorts = new Set(
     plan.addressIssues
       ?.filter((issue) => issue.code === "duplicateIpv4")
@@ -160,6 +179,16 @@ export function InterfaceTable({
                 className="min-h-11"
               />
             </Field>
+            {canEdit && allocationCandidates.size > 0 && (
+              <Button
+                variant="outline"
+                className="min-h-11"
+                disabled={Boolean(draftPort)}
+                onClick={() => setAllocation({})}
+              >
+                Auto-assign IPv4
+              </Button>
+            )}
             {draftPort && (
               <form
                 id={`${id}-save`}
@@ -315,6 +344,19 @@ export function InterfaceTable({
                             IPv4 address conflict
                           </span>
                         )}
+                        {canEdit && allocationCandidates.has(port.id) && (
+                          <Button
+                            variant="ghost"
+                            className="min-h-11 px-1"
+                            disabled={Boolean(draftPort)}
+                            aria-label={`Suggest IPv4 address for ${interfaceLabel}`}
+                            onClick={() =>
+                              setAllocation({ interfaceId: port.id })
+                            }
+                          >
+                            Suggest IPv4
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   )
@@ -355,6 +397,16 @@ export function InterfaceTable({
             ))}
           </ul>
         </section>
+      )}
+      <ConnectionList plan={plan} canEdit={canEdit} savePlan={savePlan} />
+      {canEdit && allocation && (
+        <AddressAllocationDialog
+          plan={plan}
+          candidates={allocationCandidates}
+          interfaceId={allocation.interfaceId}
+          onClose={() => setAllocation(undefined)}
+          onPlanChanged={refreshPlan}
+        />
       )}
     </div>
   )

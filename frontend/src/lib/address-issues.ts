@@ -6,7 +6,12 @@ export type AddressInterface = {
 }
 
 export type AddressIssue = {
-  code: "invalidSubnet" | "invalidIpv4" | "outsideSubnet" | "duplicateIpv4"
+  code:
+    | "invalidSubnet"
+    | "invalidAllocationSettings"
+    | "invalidIpv4"
+    | "outsideSubnet"
+    | "duplicateIpv4"
   message: string
   networkId: string | null
   networkName: string | null
