@@ -10,6 +10,7 @@ import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Field, FieldLabel } from "@/components/ui/field"
+import { ConnectionList } from "@/components/connection-list"
 import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
 import type { AddressConflictApproval } from "@/lib/address-issues"
 import type { PlanInterface } from "@/lib/plans"
@@ -395,6 +396,7 @@ export function InterfaceTable({
           </ul>
         </section>
       )}
+      <ConnectionList plan={plan} canEdit={canEdit} savePlan={savePlan} />
       {canEdit && allocation && (
         <AddressAllocationDialog
           plan={plan}
