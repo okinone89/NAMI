@@ -35,6 +35,7 @@ import {
   type InventoryPreviewRow,
   type InventoryValues,
 } from "@/lib/inventory"
+import { PlanRequestError, type PlanNetwork } from "@/lib/plans"
 
 export type InventoryReview = {
   request: InventoryPreviewRequest
@@ -45,20 +46,26 @@ export type InventoryReviewActions = InventoryReview & {
   planId: string
   close: () => void
   replacePreview: (preview: InventoryPreview) => void
+  submitting: boolean
+  setSubmitting: (submitting: boolean) => void
 }
 
 export function InventoryTools({
   planId,
   canEdit,
   renderActions,
+  onEditorExpired,
+  children,
 }: {
   planId: string
   canEdit: boolean
   renderActions?: (review: InventoryReviewActions) => ReactNode
+  onEditorExpired?: () => void
+  children?: ReactNode
 }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="flex flex-wrap gap-2 border-b px-4 py-2">
+    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
       <a
         href={`${inventoryPath(planId)}.csv`}
         className={buttonVariants({
@@ -80,22 +87,33 @@ export function InventoryTools({
               planId={planId}
               close={() => setOpen(false)}
               renderActions={renderActions}
+              onEditorExpired={onEditorExpired}
             />
           )}
         </Dialog>
       )}
+      {children}
     </div>
   )
 }
 
-function InventoryDialog({
+type BulkSelection = {
+  interfaceIds: string[]
+  networks: PlanNetwork[]
+}
+
+export function InventoryDialog({
   planId,
   close,
   renderActions,
+  onEditorExpired,
+  bulk,
 }: {
   planId: string
   close: () => void
   renderActions?: (review: InventoryReviewActions) => ReactNode
+  onEditorExpired?: () => void
+  bulk?: BulkSelection
 }) {
   const id = useId()
   const [pasted, setPasted] = useState("")
@@ -106,6 +124,7 @@ function InventoryDialog({
     Record<number, Partial<InventoryImportRow>>
   >({})
   const [busy, setBusy] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
   const body = useRef<HTMLFieldSetElement>(null)
   const dirty = Object.keys(edits).length > 0
@@ -151,6 +170,8 @@ function InventoryDialog({
       setEdits({})
       if (!review) body.current?.scrollTo(0, 0)
     } catch (failure) {
+      if (failure instanceof PlanRequestError && failure.status === 401)
+        onEditorExpired?.()
       setError(
         failure instanceof Error
           ? failure.message
@@ -162,20 +183,33 @@ function InventoryDialog({
   }
 
   return (
-    <DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-2xl">
+    <DialogContent
+      className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-2xl"
+      showCloseButton={!submitting}
+    >
       <DialogHeader className="pr-8">
-        <DialogTitle>Import inventory</DialogTitle>
+        <DialogTitle>
+          {bulk ? "Bulk edit interfaces" : "Import inventory"}
+        </DialogTitle>
         <DialogDescription>
-          Use a header row followed by one row per interface. Blank cells keep
-          existing values.
+          {bulk
+            ? `Review changes to ${bulk.interfaceIds.length} selected interfaces before applying them.`
+            : "Use a header row followed by one row per interface. Blank cells keep existing values."}
         </DialogDescription>
       </DialogHeader>
       <fieldset
         ref={body}
-        disabled={busy}
+        disabled={busy || submitting}
         className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto overscroll-contain p-1"
       >
-        {!review && (
+        {bulk && (
+          <BulkInventoryFields
+            selection={bulk}
+            hidden={Boolean(review)}
+            onPreview={(rows) => void preview({ rows })}
+          />
+        )}
+        {!bulk && !review && (
           <>
             <FieldGroup className="gap-3">
               <Field>
@@ -271,7 +305,9 @@ function InventoryDialog({
         )}
         {review && (
           <div className="flex flex-col gap-2">
-            <h3 className="font-medium">Import preview</h3>
+            <h3 className="font-medium">
+              {bulk ? "Bulk edit preview" : "Import preview"}
+            </h3>
             {review.preview.rows.map((row) => (
               <PreviewRow
                 key={row.rowNumber}
@@ -281,7 +317,8 @@ function InventoryDialog({
                   ...edits[row.rowNumber],
                   rowNumber: row.rowNumber,
                 }}
-                canKeep={!dirty && !busy}
+                canKeep={!dirty && !busy && !submitting}
+                bulkEdit={Boolean(bulk)}
                 onEdit={(changes) =>
                   setEdits((previous) => ({
                     ...previous,
@@ -311,14 +348,14 @@ function InventoryDialog({
                 type="button"
                 variant="outline"
                 className="min-h-11"
-                disabled={busy}
+                disabled={busy || submitting}
                 onClick={() => {
                   setReview(undefined)
                   setEdits({})
                   setError("")
                 }}
               >
-                Edit source or mapping
+                {bulk ? "Change bulk values" : "Edit source or mapping"}
               </Button>
               {dirty && (
                 <Button
@@ -343,6 +380,8 @@ function InventoryDialog({
                   ...review,
                   planId,
                   close,
+                  submitting,
+                  setSubmitting,
                   replacePreview: (next) =>
                     setReview({ ...review, preview: next }),
                 })}
@@ -354,16 +393,98 @@ function InventoryDialog({
   )
 }
 
+function BulkInventoryFields({
+  selection,
+  hidden,
+  onPreview,
+}: {
+  selection: BulkSelection
+  hidden: boolean
+  onPreview: (rows: InventoryImportRow[]) => void
+}) {
+  const id = useId()
+  const [network, setNetwork] = useState("")
+  const [ipv4, setIpv4] = useState("")
+  const [clearIpv4, setClearIpv4] = useState(false)
+
+  function preview() {
+    const clear: InventoryClearField[] = []
+    if (network === "clear") clear.push("network")
+    if (clearIpv4) clear.push("ipv4")
+    onPreview(
+      selection.interfaceIds.map((interfaceId, index) => ({
+        rowNumber: index + 1,
+        interfaceId,
+        networkId: network.startsWith("id:") ? network.slice(3) : undefined,
+        ipv4: clearIpv4 ? undefined : ipv4.trim(),
+        clear,
+      }))
+    )
+  }
+
+  if (hidden) return null
+  return (
+    <FieldGroup className="gap-3">
+      <Field>
+        <FieldLabel htmlFor={`${id}-network`}>Network membership</FieldLabel>
+        <select
+          id={`${id}-network`}
+          className="min-h-11 border bg-background px-2"
+          value={network}
+          onChange={(event) => setNetwork(event.target.value)}
+        >
+          <option value="">Keep current network</option>
+          <option value="clear">Clear network membership</option>
+          {selection.networks.map((item) => (
+            <option key={item.id} value={`id:${item.id}`}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor={`${id}-ipv4`}>IPv4 address</FieldLabel>
+        <Input
+          id={`${id}-ipv4`}
+          className="min-h-11"
+          placeholder="Keep current IPv4 addresses"
+          value={ipv4}
+          disabled={clearIpv4}
+          onChange={(event) => setIpv4(event.target.value)}
+        />
+      </Field>
+      <FieldLabel className="min-h-11 items-center">
+        <input
+          type="checkbox"
+          checked={clearIpv4}
+          onChange={(event) => setClearIpv4(event.target.checked)}
+        />
+        Clear IPv4 addresses
+      </FieldLabel>
+      <Button
+        type="button"
+        className="min-h-11 self-start"
+        onClick={preview}
+        disabled={!network && !ipv4.trim() && !clearIpv4}
+      >
+        Preview changes
+      </Button>
+    </FieldGroup>
+  )
+}
+
 function PreviewRow({
   row,
   draft,
   canKeep,
+  bulkEdit,
   onEdit,
   onKeep,
 }: {
   row: InventoryPreviewRow
   draft: InventoryImportRow
   canKeep: boolean
+  bulkEdit: boolean
   onEdit: (changes: Partial<InventoryImportRow>) => void
   onKeep: (approval: AddressConflictApproval) => void
 }) {
@@ -486,17 +607,25 @@ function PreviewRow({
       </div>
       {editing && !draft.skip && (
         <FieldGroup className="grid gap-3 sm:grid-cols-2">
-          {inventoryFields.map(({ key, label }) => (
-            <Field key={key}>
-              <FieldLabel htmlFor={`${id}-${key}`}>{label}</FieldLabel>
-              <Input
-                id={`${id}-${key}`}
-                className="min-h-11"
-                value={draft[key] ?? ""}
-                onChange={(event) => onEdit({ [key]: event.target.value })}
-              />
-            </Field>
-          ))}
+          {inventoryFields
+            .filter(
+              ({ key }) =>
+                !bulkEdit ||
+                key === "networkId" ||
+                key === "networkName" ||
+                key === "ipv4"
+            )
+            .map(({ key, label }) => (
+              <Field key={key}>
+                <FieldLabel htmlFor={`${id}-${key}`}>{label}</FieldLabel>
+                <Input
+                  id={`${id}-${key}`}
+                  className="min-h-11"
+                  value={draft[key] ?? ""}
+                  onChange={(event) => onEdit({ [key]: event.target.value })}
+                />
+              </Field>
+            ))}
           <FieldLabel className="min-h-11 items-center">
             <input
               type="checkbox"

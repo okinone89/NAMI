@@ -187,6 +187,7 @@ export default function App() {
               canEdit={editorSession.canEdit}
               savePlan={workspace.savePlan}
               refreshPlan={workspace.refreshPlan}
+              onEditorExpired={editorSession.refresh}
               onSelectComponent={(componentId, onMove) =>
                 selectComponent(componentId, { onMove })
               }

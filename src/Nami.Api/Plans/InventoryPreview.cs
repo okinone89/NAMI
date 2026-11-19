@@ -53,7 +53,8 @@ internal sealed record InventoryPreviewRow(
 /// <summary>The import preview and a token for detecting changes to the affected records.</summary>
 internal sealed record InventoryPreviewResponse(
     IReadOnlyList<InventoryPreviewRow> Rows,
-    string StateToken);
+    string StateToken,
+    bool CanApply);
 
 internal sealed record InventoryPreviewResult(InventoryPreviewResponse Response, Plan Proposed);
 
@@ -92,7 +93,8 @@ internal static class InventoryPreview
         };
 
         var addressIssues = ByInterface(AddressValidation.Inspect(proposed));
-        var blockingIssues = ByInterface(AddressValidation.BlockingIssues(current, proposed, request.KeepAddressConflicts));
+        var blockers = AddressValidation.BlockingIssues(current, proposed, request.KeepAddressConflicts);
+        var blockingIssues = ByInterface(blockers);
         var previewRows = candidates.Select(row =>
         {
             var hasChanges = row.After is not null && row.Before != row.After;
@@ -118,7 +120,9 @@ internal static class InventoryPreview
                 SubnetAfter = row.After?.NetworkId is { } afterId ? index.Networks[afterId].Subnet : null,
             })
         });
-        return new(new(previewRows, stateToken), proposed);
+        var canApply = blockers.Count == 0 &&
+            previewRows.Any(row => row.CanApply) && previewRows.All(row => row.Errors.Count == 0);
+        return new(new(previewRows, stateToken, canApply), proposed);
     }
 
     private static void ResolveNewComponents(IEnumerable<Candidate> candidates)
@@ -232,7 +236,7 @@ internal static class InventoryPreview
 
     private static string? NonBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static string Hash<T>(T data) =>
+    internal static string Hash<T>(T data) =>
         Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(data)));
 
     private sealed class Candidate(InventoryImportRow input)

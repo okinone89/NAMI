@@ -45,7 +45,7 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
     {
         await using var database = Database.Open(configuration, contentRoot);
         await using var command = database.CreateCommand();
-        command.CommandText = "SELECT name, revision, topology FROM plans WHERE id = @id";
+        command.CommandText = "SELECT name, revision, topology, inventory_undo FROM plans WHERE id = @id";
         AddParameter(command, "id", id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -62,7 +62,10 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
             Networks = topology.Networks,
             Components = topology.Components,
             Interfaces = topology.Interfaces,
-            Links = topology.Links
+            Links = topology.Links,
+            InventoryUndo = reader.IsDBNull(3)
+                ? null
+                : JsonSerializer.Deserialize<InventoryUndoReceipt>(reader.GetString(3), JsonOptions)
         };
     }
 
@@ -70,8 +73,16 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
     public Task<bool> SaveAsync(Plan plan, CancellationToken cancellationToken = default) =>
         SaveAsync(plan, [], cancellationToken);
 
-    public async Task<bool> SaveAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
-        CancellationToken cancellationToken = default)
+    public Task<bool> SaveAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
+        CancellationToken cancellationToken = default) =>
+        SaveAsync(plan, approvals, updateInventoryUndo: false, null, cancellationToken);
+
+    internal Task<bool> SaveInventoryAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
+        InventoryUndoReceipt? inventoryUndo, CancellationToken cancellationToken) =>
+        SaveAsync(plan, approvals, updateInventoryUndo: true, inventoryUndo, cancellationToken);
+
+    private async Task<bool> SaveAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
+        bool updateInventoryUndo, InventoryUndoReceipt? inventoryUndo, CancellationToken cancellationToken)
     {
         PlanValidation.Validate(plan);
         var current = await GetAsync(plan.Id, cancellationToken);
@@ -85,12 +96,16 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
         await using var command = database.CreateCommand();
         command.CommandText = """
             UPDATE plans
-            SET name = @name, topology = @topology, revision = revision + 1
+            SET name = @name, topology = @topology, revision = revision + 1,
+                inventory_undo = CASE WHEN @updateInventoryUndo THEN NULLIF(@inventoryUndo, '') ELSE inventory_undo END
             WHERE id = @id AND revision = @revision
             """;
         AddParameter(command, "id", plan.Id);
         AddParameter(command, "name", plan.Name);
         AddParameter(command, "topology", SerializeTopology(plan));
+        AddParameter(command, "updateInventoryUndo", updateInventoryUndo);
+        AddParameter(command, "inventoryUndo",
+            inventoryUndo is null ? "" : JsonSerializer.Serialize(inventoryUndo, JsonOptions));
         AddParameter(command, "revision", plan.Revision);
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }

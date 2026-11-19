@@ -74,7 +74,7 @@ def run_plan_test(settings, phase, *arguments):
 class DatabaseStartup(unittest.TestCase):
     def exercise(self, directory, settings, sql):
         check_startup(directory, settings)
-        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "3")
+        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "4")
         plan_ids = run_plan_test(settings, "create").splitlines()
         check_startup(directory, settings)
         run_plan_test(settings, "reload", *plan_ids)
@@ -89,7 +89,7 @@ class DatabaseStartup(unittest.TestCase):
         sql("CREATE TABLE plans (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL)")
         sql("INSERT INTO plans VALUES ('line-1', 'Assembly')")
         check_startup(directory, settings)
-        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "3")
+        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "4")
         self.assertEqual(sql("SELECT name FROM plans WHERE id='line-1'"), "Assembly")
         run_plan_test(settings, "legacy", "line-1")
         sql("DROP INDEX plans_name_idx")  # The upgrade physically recreated the index.
