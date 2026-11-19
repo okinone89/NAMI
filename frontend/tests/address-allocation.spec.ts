@@ -87,7 +87,9 @@ test("a saved pool skips assigned, reserved, and excluded IPv4 addresses", async
   await network.getByRole("button", { name: "Save network" }).click()
   await expect(network).toBeHidden()
 
-  const address = page.getByLabel("IPv4 address for Filler PLC / LAN B")
+  const address = page.getByLabel("IPv4 address for Filler PLC / LAN B", {
+    exact: true,
+  })
   await suggest.click()
   const suggestion = page.getByRole("dialog", { name: "Suggest IPv4 address" })
   await suggestion.getByRole("button", { name: "Preview suggestion" }).click()
@@ -104,7 +106,7 @@ test("a saved pool skips assigned, reserved, and excluded IPv4 addresses", async
   await page.getByRole("button", { name: "Table", exact: true }).click()
   await expect(address).toHaveValue("192.168.1.30")
   await expect(
-    page.getByLabel("IPv4 address for Filler PLC / LAN A")
+    page.getByLabel("IPv4 address for Filler PLC / LAN A", { exact: true })
   ).toHaveValue("192.168.1.20")
 })
 
