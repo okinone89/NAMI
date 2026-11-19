@@ -5,6 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="EditorSessionHost" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.14" />
     <PackageReference Include="Npgsql" Version="10.0.3" />

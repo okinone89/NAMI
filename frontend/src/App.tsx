@@ -5,6 +5,8 @@ import {
   IconTable,
 } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
+import { EditorSessionControls } from "@/components/editor-session"
+import { useEditorSession } from "@/hooks/use-editor-session"
 
 const views = {
   Diagram: {
@@ -31,6 +33,7 @@ type Plan = {
 }
 
 export default function App() {
+  const editorSession = useEditorSession()
   const [view, setView] = useState<View>("Diagram")
   const [plan, setPlan] = useState<Plan>()
   const [failed, setFailed] = useState(false)
@@ -70,7 +73,10 @@ export default function App() {
           className="size-8 bg-primary p-1 text-primary-foreground"
         />
         <strong className="tracking-wide">NAMI</strong>
-        <span className="border-l pl-3 text-xs">Network workspace</span>
+        <span className="hidden border-l pl-3 text-xs sm:inline">
+          Network workspace
+        </span>
+        <EditorSessionControls session={editorSession} />
       </header>
       <main className="mx-auto max-w-7xl px-4 py-7 sm:px-10 sm:py-12">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-5">
