@@ -96,14 +96,18 @@ function planPath(id: string) {
   return `${plansPath}/${encodeURIComponent(id)}`
 }
 
-async function readResponse<T>(response: Response): Promise<T> {
-  if (response.ok) return response.json()
+async function requireSuccess(response: Response): Promise<Response> {
+  if (response.ok) return response
   const problem = await response.json().catch(() => undefined)
   throw new PlanRequestError(
     response.status,
     problem?.title ?? "The plan request failed. Try again.",
     problem?.addressIssues
   )
+}
+
+async function readResponse<T>(response: Response): Promise<T> {
+  return (await requireSuccess(response)).json()
 }
 
 export async function listPlans(signal?: AbortSignal) {
@@ -124,6 +128,21 @@ export async function createPlan(name: string) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
+    })
+  )
+}
+
+export async function exportPlan(id: string) {
+  const response = await fetch(`${planPath(id)}/package`, { cache: "no-store" })
+  return (await requireSuccess(response)).blob()
+}
+
+export async function importPlan(file: File) {
+  return readResponse<Plan>(
+    await fetch(`${plansPath}/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: file,
     })
   )
 }
