@@ -7,17 +7,25 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<Plan> CreateAsync(string name, CancellationToken cancellationToken = default)
+    public Task<Plan> CreateAsync(string name, CancellationToken cancellationToken = default) =>
+        InsertAsync(new Plan(Guid.NewGuid().ToString(), name, 0), cancellationToken);
+
+    internal async Task<Plan> InsertAsync(Plan plan, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        var id = Guid.NewGuid().ToString();
+        PlanValidation.Validate(plan);
+        // A package carries already recorded addresses, including duplicates that remain flagged.
+        var issues = AddressValidation.Inspect(plan).Where(issue => issue.Code != AddressIssueCode.DuplicateIpv4).ToArray();
+        if (issues.Length > 0)
+            throw new AddressValidationException(issues);
+
         await using var database = Database.Open(configuration, contentRoot);
         await using var command = database.CreateCommand();
-        command.CommandText = "INSERT INTO plans (id, name) VALUES (@id, @name)";
-        AddParameter(command, "id", id);
-        AddParameter(command, "name", name);
+        command.CommandText = "INSERT INTO plans (id, name, topology) VALUES (@id, @name, @topology)";
+        AddParameter(command, "id", plan.Id);
+        AddParameter(command, "name", plan.Name);
+        AddParameter(command, "topology", SerializeTopology(plan));
         await command.ExecuteNonQueryAsync(cancellationToken);
-        return new Plan(id, name, 0);
+        return plan;
     }
 
     public async Task<IReadOnlyList<PlanSummary>> ListAsync(CancellationToken cancellationToken = default)
@@ -73,7 +81,6 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
         var issues = AddressValidation.BlockingIssues(current, plan, approvals);
         if (issues.Count > 0)
             throw new AddressValidationException(issues);
-        var topology = new Topology(plan.Networks, plan.Components, plan.Interfaces, plan.Links);
         await using var database = Database.Open(configuration, contentRoot);
         await using var command = database.CreateCommand();
         command.CommandText = """
@@ -83,10 +90,13 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
             """;
         AddParameter(command, "id", plan.Id);
         AddParameter(command, "name", plan.Name);
-        AddParameter(command, "topology", JsonSerializer.Serialize(topology, JsonOptions));
+        AddParameter(command, "topology", SerializeTopology(plan));
         AddParameter(command, "revision", plan.Revision);
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
+
+    private static string SerializeTopology(Plan plan) => JsonSerializer.Serialize(
+        new Topology(plan.Networks, plan.Components, plan.Interfaces, plan.Links), JsonOptions);
 
     private static void AddParameter(DbCommand command, string name, object value)
     {

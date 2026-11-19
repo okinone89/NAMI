@@ -200,15 +200,27 @@ test("batch assignment shows exhaustion and requires confirmation of a refreshed
   await confirm.click()
   await expect(dialog).toBeHidden()
   await expect(
-    page.getByLabel("IPv4 address for Filler PLC / LAN A")
+    page.getByRole("textbox", {
+      name: "IPv4 address for Filler PLC / LAN A",
+      exact: true,
+    })
   ).toHaveValue("192.168.1.20")
   await expect(
-    page.getByLabel("IPv4 address for Filler PLC / LAN B")
+    page.getByRole("textbox", {
+      name: "IPv4 address for Filler PLC / LAN B",
+      exact: true,
+    })
   ).toHaveValue("192.168.1.31")
   await expect(
-    page.getByLabel("IPv4 address for Filler PLC / LAN C")
+    page.getByRole("textbox", {
+      name: "IPv4 address for Filler PLC / LAN C",
+      exact: true,
+    })
   ).toHaveValue("192.168.1.32")
   await expect(
-    page.getByLabel("IPv4 address for Filler PLC / LAN D")
+    page.getByRole("textbox", {
+      name: "IPv4 address for Filler PLC / LAN D",
+      exact: true,
+    })
   ).toHaveValue("192.168.1.30")
 })
