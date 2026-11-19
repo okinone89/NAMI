@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
 import { editorPassphrase } from "./workspace-settings"
 
+const destinationOrigin = process.env.NAMI_TEST_TRANSFER_DESTINATION
+
 const imageData =
   "data:image/png;base64," +
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=="
@@ -9,7 +11,7 @@ const imageData =
 test("download a plan and reopen an imported copy with its diagram and interface data", async ({
   page,
 }, info) => {
-  const name = `Transfer cell ${info.project.name}`
+  const name = `Transfer cell ${info.project.name}${destinationOrigin ? " cross-provider" : ""}`
   const session = await page.request.post("/api/editor-session", {
     data: { passphrase: editorPassphrase },
   })
@@ -84,6 +86,23 @@ test("download a plan and reopen an imported copy with its diagram and interface
   const file = info.outputPath("plan.nami.json")
   await download.saveAs(file)
 
+  const selection = page.getByLabel("Open plan")
+  let existingId = original.id
+  if (destinationOrigin) {
+    await page.context().clearCookies()
+    await page.goto(destinationOrigin)
+    await page.getByRole("button", { name: "Unlock editing" }).click()
+    const unlock = page.getByRole("dialog", { name: "Unlock editing" })
+    await unlock.getByLabel("Shared editor passphrase").fill(editorPassphrase)
+    await unlock.getByRole("button", { name: "Unlock editing" }).click()
+    await page.getByRole("button", { name: "New plan" }).click()
+    const create = page.getByRole("dialog", { name: "New plan" })
+    await create.getByLabel("Plan name").fill(name)
+    await create.getByRole("button", { name: "Create plan" }).click()
+    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
+    existingId = await selection.inputValue()
+    expect(existingId).not.toBe(original.id)
+  }
   await page.getByRole("button", { name: "Import plan", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Import plan" })
   const packageInput = dialog.getByLabel("Plan package")
@@ -97,19 +116,27 @@ test("download a plan and reopen an imported copy with its diagram and interface
   await expect(dialog.getByRole("alert")).toContainText(
     "Choose a complete and valid NAMI plan package"
   )
-  const selection = page.getByLabel("Open plan")
-  await expect(selection).toHaveValue(original.id)
+  await expect(selection).toHaveValue(existingId)
 
   await packageInput.setInputFiles(file)
   await importButton.click()
   await expect(dialog).toBeHidden()
+  await expect(selection).not.toHaveValue(existingId)
+  if (destinationOrigin) {
+    const copiedId = await selection.inputValue()
+    const existing = await page.request.get(
+      new URL(`/api/plans/${existingId}`, destinationOrigin).href
+    )
+    expect(existing.ok()).toBe(true)
+    expect((await existing.json()).components).toEqual([])
+    expect(copiedId).not.toBe(original.id)
+  }
   await expect(selection.locator("option", { hasText: name })).toHaveCount(2)
-  await expect(selection).not.toHaveValue(original.id)
 
   await page.getByRole("button", { name: "Sign out" }).click()
   await page.reload()
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
-  await expect(selection).not.toHaveValue(original.id)
+  await expect(selection).not.toHaveValue(existingId)
   await expect(panel).toHaveAttribute("style", originalPosition!)
   const icon = panel.getByRole("img", { name: "Custom icon" })
   await expect(icon).toBeVisible()

@@ -69,3 +69,48 @@ npm run dev
 Start the API in another terminal using the command above, then open the local URL printed by Vite (normally http://localhost:5173). Vite forwards `/api` and `/health` to the API on port 5080. Choose a plan with **Open plan**. After unlocking editing, use **New plan**, **Add network**, or **Add component** to build the inventory. Select a component in either view to open its details and interfaces.
 
 The workspace uses shadcn preset `b2CRHdRTM`. Its generated configuration and theme are in `frontend/components.json` and `frontend/src/index.css`. From `frontend`, run `npm run build` to typecheck and produce the Vite production bundle in `dist/`. CI runs that build and the desktop and phone browser tests. To run the tests locally, install the .NET 10 SDK and run `npx playwright install chromium --only-shell` followed by `npm test`. Playwright starts Vite and an API with a disposable SQLite database. Set `NAMI_TEST_WEB_PORT` and `NAMI_TEST_API_PORT` to override the default ports 5174 and 5081.
+
+## First-release verification
+
+From a clean checkout with the tools above, build the API and both integration test hosts, then install and build the React app.
+
+```sh
+dotnet build src/Nami.Api
+dotnet build tests/PlanPersistence
+dotnet build tests/EditorSessionHost
+python3 -B -m unittest discover -s tests -p '*.py'
+
+(cd frontend && npm ci && npm run build && npx playwright install chromium --only-shell)
+```
+
+Run the browser suite once for each provider. Start each API with the database settings above, using a fresh SQLite file or empty PostgreSQL database. In a terminal at the repository root, run
+
+```sh
+ASPNETCORE_ENVIRONMENT=Development Editor__Passphrase='playwright-only editor passphrase' \
+  dotnet run --no-build --project src/Nami.Api -- --urls http://127.0.0.1:5081
+```
+
+Check that `/health` returns `{"status":"ready"}`, then run the browser suite from another terminal. Playwright starts Vite and proxies requests to the API you started.
+
+```sh
+(cd frontend && NAMI_TEST_USE_EXTERNAL_API=1 npm test)
+```
+
+To verify transfer between providers in Chromium, keep the source API on port 5081. Start a second API on port 5080 with the other provider, its own empty database and the same local test passphrase. In separate terminals, start the destination React app and run the transfer test.
+
+```sh
+(cd frontend && NAMI_API_ORIGIN=http://127.0.0.1:5080 npm run dev -- --host 127.0.0.1 --port 5173 --strictPort)
+(cd frontend && NAMI_TEST_USE_EXTERNAL_API=1 NAMI_TEST_TRANSFER_DESTINATION=http://127.0.0.1:5173 \
+  npm test -- plan-packages.spec.ts)
+```
+
+Repeat with fresh databases and the providers reversed. The browser downloads a package from the source, uploads the file through the destination, and reopens the copied plan to check the custom icon, layout, labeled shape, link, and interface data. Keep the test passphrase and disposable databases local.
+
+The first-release run on macOS with .NET SDK 10.0.402, Node.js 24.22.0, and PostgreSQL 18.6 passed these checks.
+
+| Check | Result |
+| --- | --- |
+| HTTP integration suite | 35 passed, including schema setup and restart, exact eight-hour expiry and passphrase rotation on persisted plans, stale allocation and import, conditional undo, and all four transfer directions. |
+| Chromium with SQLite | 78 passed, with 12 skips for viewport and input combinations assigned to the other project. |
+| Chromium with PostgreSQL | 78 passed, with the same 12 viewport and input skips. |
+| Cross-provider transfer in Chromium | 4 passed, covering both provider directions on desktop and phone. |
