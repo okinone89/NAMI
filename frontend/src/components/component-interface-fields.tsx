@@ -1,4 +1,5 @@
 import { useId } from "react"
+import { PersistedIpv4Issues } from "@/components/ipv4-issues"
 import { ProtocolProfileFields } from "@/components/protocol-profile-fields"
 import { Button } from "@/components/ui/button"
 import {
@@ -9,16 +10,19 @@ import {
   FieldSet,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import type { AddressIssue } from "@/lib/address-issues"
 import type { PlanInterface, PlanNetwork } from "@/lib/plans"
 
 export function ComponentInterfaceFields({
   port,
   networks,
+  addressIssues = [],
   onChange,
   onDiscard,
 }: {
   port: PlanInterface
   networks: PlanNetwork[]
+  addressIssues?: AddressIssue[]
   onChange: (port: PlanInterface) => void
   onDiscard?: () => void
 }) {
@@ -73,6 +77,7 @@ export function ComponentInterfaceFields({
           />
         </Field>
       </FieldGroup>
+      <PersistedIpv4Issues issues={addressIssues} />
       <ProtocolProfileFields
         profiles={port.protocolProfiles}
         onChange={(protocolProfiles) => onChange({ ...port, protocolProfiles })}

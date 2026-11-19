@@ -14,7 +14,7 @@ import { ComponentEditor } from "@/components/component-editor"
 import { DiagramView } from "@/components/diagram-view"
 import { InterfaceTable } from "@/components/interface-table"
 import { diagramDragSource } from "@/lib/diagram-placement"
-import type { DiagramPosition, Plan } from "@/lib/plans"
+import type { DiagramPosition, SavePlanSnapshot } from "@/lib/plans"
 
 const views = {
   Diagram: {
@@ -56,17 +56,21 @@ export default function App() {
     if (plan) setSelection({ planId: plan.id, componentId, position })
   }
 
-  function saveComponent(next: Plan) {
+  const saveComponent: SavePlanSnapshot = (next, keepAddressConflicts) => {
     const position = activeSelection?.position
-    if (!plan || !addingComponent || !position) return workspace.savePlan(next)
+    if (!plan || !addingComponent || !position)
+      return workspace.savePlan(next, keepAddressConflicts)
 
     const existing = new Set(plan.components.map(({ id }) => id))
-    return workspace.savePlan({
-      ...next,
-      components: next.components.map((component) =>
-        existing.has(component.id) ? component : { ...component, position }
-      ),
-    })
+    return workspace.savePlan(
+      {
+        ...next,
+        components: next.components.map((component) =>
+          existing.has(component.id) ? component : { ...component, position }
+        ),
+      },
+      keepAddressConflicts
+    )
   }
 
   const { icon: ViewIcon, heading, component: ActiveView } = views[view]

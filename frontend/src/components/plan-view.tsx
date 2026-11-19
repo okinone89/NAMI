@@ -1,11 +1,11 @@
 import type { ComponentType } from "react"
-import type { Plan } from "@/lib/plans"
+import type { Plan, SavePlanSnapshot } from "@/lib/plans"
 
 export type PlanViewProps = {
   plan: Plan
   canEdit: boolean
   onSelectComponent: (componentId: string) => void
-  savePlan: (plan: Plan) => Promise<void>
+  savePlan: SavePlanSnapshot
 }
 
 export function EmptyPlanView({

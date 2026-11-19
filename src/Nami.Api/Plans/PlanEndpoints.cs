@@ -17,6 +17,7 @@ internal static class PlanEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized);
         plans.MapPut("/{id}", SavePlan)
             .WithSummary("Save a plan snapshot at the current revision")
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status409Conflict);
     }
@@ -55,8 +56,16 @@ internal static class PlanEndpoints
         };
         try
         {
-            if (await store.SaveAsync(plan, cancellationToken))
+            if (await store.SaveAsync(plan, request.KeepAddressConflicts ?? [], cancellationToken))
                 return TypedResults.Ok(plan with { Revision = plan.Revision + 1 });
+        }
+        catch (AddressValidationException error)
+        {
+            var duplicatesOnly = error.Issues.All(issue => issue.Code == AddressIssueCode.DuplicateIpv4);
+            return TypedResults.Problem(
+                statusCode: duplicatesOnly ? StatusCodes.Status409Conflict : StatusCodes.Status400BadRequest,
+                title: duplicatesOnly ? "Resolve the IPv4 address conflicts or keep them flagged." : error.Message,
+                extensions: new Dictionary<string, object?> { ["addressIssues"] = error.Issues });
         }
         catch (ArgumentException)
         {
@@ -84,4 +93,5 @@ internal sealed record SavePlanRequest
     public required IReadOnlyList<Component> Components { get; init; }
     public required IReadOnlyList<PlanInterface> Interfaces { get; init; }
     public required IReadOnlyList<PlanLink> Links { get; init; }
+    public IReadOnlyList<AddressConflictApproval>? KeepAddressConflicts { get; init; }
 }

@@ -1,3 +1,7 @@
+import type {
+  AddressConflictApproval,
+  AddressIssue,
+} from "@/lib/address-issues"
 import type { InterfaceProtocolProfiles } from "@/lib/protocol-profiles"
 
 export type PlanSummary = {
@@ -47,14 +51,26 @@ export type Plan = PlanSummary & {
   components: Component[]
   interfaces: PlanInterface[]
   links: PlanLink[]
+  addressIssues?: AddressIssue[]
 }
+
+export type SavePlanSnapshot = (
+  plan: Plan,
+  keepAddressConflicts?: AddressConflictApproval[]
+) => Promise<void>
 
 export class PlanRequestError extends Error {
   readonly status: number
+  readonly addressIssues: AddressIssue[]
 
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    addressIssues: AddressIssue[] = []
+  ) {
     super(message)
     this.status = status
+    this.addressIssues = addressIssues
   }
 }
 
@@ -69,7 +85,8 @@ async function readResponse<T>(response: Response): Promise<T> {
   const problem = await response.json().catch(() => undefined)
   throw new PlanRequestError(
     response.status,
-    problem?.title ?? "The plan request failed. Try again."
+    problem?.title ?? "The plan request failed. Try again.",
+    problem?.addressIssues
   )
 }
 
@@ -95,12 +112,15 @@ export async function createPlan(name: string) {
   )
 }
 
-export async function savePlan(plan: Plan) {
+export async function savePlan(
+  plan: Plan,
+  keepAddressConflicts?: AddressConflictApproval[]
+) {
   return readResponse<Plan>(
     await fetch(planPath(plan.id), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(plan),
+      body: JSON.stringify({ ...plan, keepAddressConflicts }),
     })
   )
 }
