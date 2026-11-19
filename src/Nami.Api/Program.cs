@@ -27,6 +27,7 @@ internal static class NamiApplication
         app.MapGet("/health", () => Results.Ok(new { status = "ready" }));
         app.MapEditorSession();
         app.MapPlans();
+        app.MapInventory();
         return app;
     }
 }
