@@ -3,6 +3,7 @@ namespace Nami.Api.Plans;
 public static class AddressIssueCode
 {
     public const string InvalidSubnet = "invalidSubnet";
+    public const string InvalidAllocationSettings = "invalidAllocationSettings";
     public const string InvalidIpv4 = "invalidIpv4";
     public const string OutsideSubnet = "outsideSubnet";
     public const string DuplicateIpv4 = "duplicateIpv4";
@@ -36,9 +37,20 @@ public static class AddressValidation
         foreach (var network in plan.Networks)
         {
             if (network.Subnet is null)
+            {
+                if (network.AllocationPool is not null || network.ExcludedIpv4Ranges is { Count: > 0 })
+                    issues.Add(new(AddressIssueCode.InvalidAllocationSettings,
+                        $"Add a subnet for {network.Name} before setting an allocation pool or exclusions.",
+                        network.Id, network.Name, null, []));
                 continue;
+            }
             if (Ipv4Subnet.TryParse(network.Subnet, out var subnet))
+            {
                 subnets.Add(network.Id, subnet);
+                if (AddressAllocation.ReadRanges(network, subnet, out _, out _) is { } error)
+                    issues.Add(new(AddressIssueCode.InvalidAllocationSettings, error,
+                        network.Id, network.Name, null, []));
+            }
             else
                 issues.Add(new(AddressIssueCode.InvalidSubnet,
                     $"Enter a valid IPv4 subnet in CIDR notation for {network.Name} (for example, 192.168.1.0/24).",
