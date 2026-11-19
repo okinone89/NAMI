@@ -24,7 +24,9 @@ public sealed record Component(
     string Name,
     string Type,
     DiagramPosition? Position = null,
-    string? HostId = null);
+    string? HostId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ComponentAppearance? Appearance = null);
 
 public sealed record DiagramPosition(double X, double Y);
 

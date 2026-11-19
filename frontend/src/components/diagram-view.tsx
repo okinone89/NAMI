@@ -1,5 +1,6 @@
 import { useMemo, useState, type DragEvent } from "react"
 import { IconAlertTriangle, IconNetwork, IconSchema } from "@tabler/icons-react"
+import { DiagramComponentLabel } from "@/components/diagram-component-label"
 import { Button } from "@/components/ui/button"
 import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
 import { DiagramLinks, LinkLegend } from "@/components/diagram-links"
@@ -163,12 +164,7 @@ export function DiagramView({
           () => onSelectComponent(component.id)
         )}
       >
-        <span className="line-clamp-2 w-full wrap-anywhere">
-          {component.name}
-        </span>
-        <span className="w-full truncate text-muted-foreground">
-          {component.type}
-        </span>
+        <DiagramComponentLabel component={component} />
         {flaggedComponents.has(component.id) && (
           <IconAlertTriangle
             role="img"
