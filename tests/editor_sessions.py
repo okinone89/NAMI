@@ -124,34 +124,48 @@ class EditorSessions(unittest.TestCase):
                 epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
                 self.assertEqual(datetime.fromisoformat(session["expiresAt"]), epoch + timedelta(hours=8))
 
+                status, plan, created = request(address, "/api/plans", "POST", {"name": "Filler"}, cookie)
+                self.assertEqual(status, 201)
+                path = created["Location"]
+
                 hour = 3600
                 self.assertEqual(request(address, f"/test/clock/{7 * hour}")[0], 204)
-                self.assertEqual(request(address, FILLER, cookie=cookie)[:2], (200, {"name": "Filler"}))
+                self.assertEqual(request(address, path, cookie=cookie)[:2], (200, plan))
                 self.assertEqual(request(address, f"/test/clock/{15 * hour - 1}")[0], 204)
                 _, session, _ = request(address, SESSION, cookie=cookie)
                 self.assertTrue(session["canEdit"])
                 self.assertEqual(datetime.fromisoformat(session["expiresAt"]), epoch + timedelta(hours=15))
 
                 self.assertEqual(request(address, f"/test/clock/{15 * hour}")[0], 204)
-                self.assertEqual(request(address, FILLER, "PUT", {"name": "Changed"}, cookie)[0], 401)
+                changed = {**plan, "name": "Changed"}
+                self.assertEqual(request(address, path, "PUT", changed, cookie)[0], 401)
                 self.assertEqual(request(address, SESSION, cookie=cookie)[:2], (200, READ_ONLY))
-                self.assertEqual(request(address, FILLER, cookie=cookie)[:2], (200, {"name": "Filler"}))
+                self.assertEqual(request(address, path, cookie=cookie)[:2], (200, plan))
+
     def test_rotating_the_passphrase_rejects_previous_credentials_and_sessions(self):
         with TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            with running_api(directory, settings_for(directory), TEST_HOST) as address:
+            with running_api(directory, settings_for(directory)) as address:
                 _, _, headers = request(address, SESSION, "POST", {"passphrase": PASSPHRASE})
                 prior_cookie = headers["Set-Cookie"].split(";", 1)[0]
+                status, plan, created = request(address, "/api/plans", "POST", {"name": "Filler"}, prior_cookie)
+                self.assertEqual(status, 201)
+                path = created["Location"]
                 self.assertTrue(request(address, SESSION, cookie=prior_cookie)[1]["canEdit"])
 
             replacement = "replacement workshop phrase"
-            with running_api(directory, settings_for(directory, replacement), TEST_HOST) as address:
+            with running_api(directory, settings_for(directory, replacement)) as address:
                 self.assertEqual(request(address, SESSION, "POST", {"passphrase": PASSPHRASE})[0], 401)
-                self.assertEqual(request(address, FILLER, "PUT", {"name": "Changed"}, prior_cookie)[0], 401)
-                self.assertEqual(request(address, FILLER)[:2], (200, {"name": "Filler"}))
+                self.assertEqual(request(address, SESSION, cookie=prior_cookie)[:2], (200, READ_ONLY))
+                changed = {**plan, "name": "Changed"}
+                self.assertEqual(request(address, path, "PUT", changed, prior_cookie)[0], 401)
+                self.assertEqual(request(address, path)[:2], (200, plan))
                 _, _, headers = request(address, SESSION, "POST", {"passphrase": replacement})
                 cookie = headers["Set-Cookie"].split(";", 1)[0]
-                self.assertEqual(request(address, FILLER, "PUT", {"name": "Changed"}, cookie)[0], 204)
+                status, saved, _ = request(address, path, "PUT", changed, cookie)
+                self.assertEqual(status, 200)
+                self.assertEqual(saved["name"], changed["name"])
+                self.assertEqual(request(address, path)[:2], (200, saved))
 
 
 if __name__ == "__main__":

@@ -162,10 +162,12 @@ test("pasted rows can be mapped, reviewed, corrected, cleared, or skipped", asyn
   ])
 })
 
-test("commits selected inventory rows and offers undo after reload", async ({
+test("reconfirms a stale inventory import and undoes it after reopening", async ({
   page,
+  request,
 }) => {
   const planId = await openInventory(page)
+  const path = `/api/plans/${planId}`
   await page.getByRole("button", { name: "Import inventory" }).click()
   const dialog = page.getByRole("dialog", { name: "Import inventory" })
   await dialog
@@ -180,7 +182,38 @@ test("commits selected inventory rows and offers undo after reload", async ({
     .getByLabel("Skip row")
     .check()
   await dialog.getByRole("button", { name: "Update preview" }).click()
-  await dialog.getByRole("button", { name: "Apply import" }).click()
+
+  const editor = await request.post("/api/editor-session", {
+    data: { passphrase: editorPassphrase },
+  })
+  expect(editor.ok()).toBe(true)
+  const current: Plan = await (await request.get(path)).json()
+  const competingAddress = "192.168.1.21"
+  const competingSave = await request.put(path, {
+    data: {
+      ...current,
+      interfaces: current.interfaces.map((port) =>
+        port.id === "port-b" ? { ...port, ipv4: competingAddress } : port
+      ),
+    } satisfies Plan,
+  })
+  expect(competingSave.ok()).toBe(true)
+
+  const apply = dialog.getByRole("button", { name: "Apply import" })
+  await apply.click()
+  await expect(dialog.getByRole("status")).toContainText(
+    "Review the refreshed preview"
+  )
+  await expect(
+    dialog
+      .getByRole("region", { name: "Row 2" })
+      .getByRole("group", { name: "Before" })
+  ).toContainText(competingAddress)
+  expect(await (await page.request.get(path)).json()).toEqual(
+    await competingSave.json()
+  )
+
+  await apply.click()
   await expect(dialog).toBeHidden()
   const interfaces = page.getByRole("table", { name: "Interfaces" })
   const capperAddress = interfaces.getByRole("textbox", {
@@ -197,14 +230,12 @@ test("commits selected inventory rows and offers undo after reload", async ({
   await page.reload()
   await page.getByRole("button", { name: "Table", exact: true }).click()
   await page.getByRole("button", { name: "Undo import" }).click()
-  await expect(capperAddress).toHaveValue("192.168.1.20")
+  await expect(capperAddress).toHaveValue(competingAddress)
   await expect(interfaces.getByRole("row", { name: /Packer PLC/ })).toHaveCount(
     0
   )
-  const current: Plan = await (
-    await page.request.get(`/api/plans/${planId}`)
-  ).json()
-  expect(current.components.map(({ id }) => id)).toEqual(["plc-a", "plc-b"])
+  const undone: Plan = await (await page.request.get(path)).json()
+  expect(undone.components.map(({ id }) => id)).toEqual(["plc-a", "plc-b"])
 })
 
 test("reviews table selections before bulk editing and reconfirms a stale change", async ({
