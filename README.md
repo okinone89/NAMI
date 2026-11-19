@@ -34,7 +34,7 @@ Back up before upgrades. For SQLite, use the SQLite shell's online backup comman
 On macOS or Linux, install Python 3 and put the PostgreSQL server utilities (`initdb`, `pg_ctl`, `psql`) on PATH. Run as a regular user. The suite starts the API on loopback and creates its own SQLite file and disposable PostgreSQL cluster.
 
 ```sh
-dotnet build src/Nami.Api
+dotnet build tests/PlanPersistence
 python3 tests/startup.py
 ```
 
