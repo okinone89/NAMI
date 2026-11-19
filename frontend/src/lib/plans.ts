@@ -1,3 +1,4 @@
+import type { ComponentAppearance } from "@/lib/component-appearance"
 import type { InterfaceProtocolProfiles } from "@/lib/protocol-profiles"
 
 export type PlanSummary = {
@@ -20,6 +21,7 @@ export type Component = {
   type: string
   position: DiagramPosition | null
   hostId: string | null
+  appearance?: ComponentAppearance
 }
 
 export type PlanInterface = {
