@@ -6,6 +6,7 @@ import {
   IconTable,
 } from "@tabler/icons-react"
 import { AddressAllocationDialog } from "@/components/address-allocation-dialog"
+import { InventoryTools } from "@/components/inventory-tools"
 import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -157,6 +158,7 @@ export function InterfaceTable({
 
   return (
     <div className="min-h-[50svh]">
+      <InventoryTools key={plan.id} planId={plan.id} canEdit={canEdit} />
       {plan.interfaces.length ? (
         <>
           <div
