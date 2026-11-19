@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react"
+import { ProtocolProfileDetails } from "@/components/protocol-profile-details"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -7,7 +8,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { linkEndpointLabel, linkMediumLabels } from "@/lib/link-labels"
-import type { LinkEndpoint, LinkMedium, Plan, PlanLink } from "@/lib/plans"
+import type {
+  LinkEndpoint,
+  LinkMedium,
+  Plan,
+  PlanInterface,
+  PlanLink,
+} from "@/lib/plans"
 
 type Props = {
   plan: Plan
@@ -60,11 +67,24 @@ export function LinkInspector({
     }
   }
 
-  function endpointLabel(endpoint: LinkEndpoint) {
-    return linkEndpointLabel(
-      endpoint,
-      new Map(plan.components.map(({ id, name }) => [id, name])),
-      new Map(plan.interfaces.map(({ id, name }) => [id, name]))
+  const componentNames = new Map(
+    plan.components.map(({ id, name }) => [id, name])
+  )
+  const interfaceNames = new Map(
+    plan.interfaces.map(({ id, name }) => [id, name])
+  )
+
+  function endpointDetails(endpoint: LinkEndpoint) {
+    const port = plan.interfaces.find(({ id }) => id === endpoint.interfaceId)
+    return (
+      <>
+        <div>{linkEndpointLabel(endpoint, componentNames, interfaceNames)}</div>
+        {port ? (
+          <InterfaceDetails port={port} />
+        ) : (
+          <div className="text-xs text-muted-foreground">Port unspecified</div>
+        )}
+      </>
     )
   }
 
@@ -75,7 +95,10 @@ export function LinkInspector({
         if (!open && !busy) onClose()
       }}
     >
-      <DialogContent showCloseButton={false}>
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        showCloseButton={false}
+      >
         <DialogHeader>
           <DialogTitle>{link ? "Link details" : "Add link"}</DialogTitle>
         </DialogHeader>
@@ -141,11 +164,11 @@ export function LinkInspector({
               <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-sm">
                 <dt className="text-muted-foreground">Source</dt>
                 <dd className="min-w-0 wrap-break-word">
-                  {endpointLabel(link.source)}
+                  {endpointDetails(link.source)}
                 </dd>
                 <dt className="text-muted-foreground">Target</dt>
                 <dd className="min-w-0 wrap-break-word">
-                  {endpointLabel(link.target)}
+                  {endpointDetails(link.target)}
                 </dd>
                 <dt className="text-muted-foreground">Medium</dt>
                 <dd>{linkMediumLabels[link.medium]}</dd>
@@ -231,6 +254,23 @@ function EndpointField({
           ))}
         </select>
       </label>
+      <InterfaceDetails
+        port={interfaces.find(({ id }) => id === endpoint.interfaceId)}
+      />
     </fieldset>
+  )
+}
+
+function InterfaceDetails({ port }: { port?: PlanInterface }) {
+  return (
+    <>
+      {port?.ipv4 && (
+        <div className="mt-2 flex flex-wrap gap-x-2">
+          <span className="text-muted-foreground">IPv4 address</span>
+          <span>{port.ipv4}</span>
+        </div>
+      )}
+      <ProtocolProfileDetails profiles={port?.protocolProfiles} />
+    </>
   )
 }
