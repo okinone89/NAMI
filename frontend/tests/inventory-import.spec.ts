@@ -248,9 +248,7 @@ test("reviews table selections before bulk editing and reconfirms a stale change
   const afterFirstConfirm: Plan = await (
     await page.request.get(planPath)
   ).json()
-  expect(
-    afterFirstConfirm.interfaces.map(({ networkId }) => networkId)
-  ).toEqual(["pack", "pack"])
+  expect(afterFirstConfirm).toEqual(await edited.json())
 
   await apply.click()
   await expect(dialog).toBeHidden()
@@ -259,10 +257,11 @@ test("reviews table selections before bulk editing and reconfirms a stale change
   ).toHaveValue("test")
   const saved: Plan = await (await page.request.get(planPath)).json()
   expect(
-    saved.interfaces.map(({ networkId, ipv4 }) => [networkId, ipv4])
+    saved.interfaces.map(({ id, networkId, ipv4 }) => [id, networkId, ipv4])
   ).toEqual([
-    ["test", "192.168.1.11"],
-    ["test", "192.168.1.20"],
+    ["port-a", "test", "192.168.1.11"],
+    ["port-b", "test", "192.168.1.20"],
+    ["port-d", "pack", null],
   ])
   await expect(page.getByRole("button", { name: "Undo import" })).toHaveCount(0)
 })
