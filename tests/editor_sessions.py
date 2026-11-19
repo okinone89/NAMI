@@ -13,7 +13,7 @@ TEST_HOST = Path(__file__).resolve().parent / "EditorSessionHost/bin/Debug/net10
 SESSION = "/api/editor-session"
 PASSPHRASE = "test-only workshop phrase"
 READ_ONLY = {"canEdit": False, "expiresAt": None}
-FILLER = "/api/plans/filler"
+FILLER = "/api/test-plans/filler"
 
 
 def settings_for(directory, passphrase=PASSPHRASE):
@@ -75,7 +75,7 @@ class EditorSessions(unittest.TestCase):
                 cookie = headers["Set-Cookie"].split(";", 1)[0]
                 for plan in ("Filler", "Assembly"):
                     with self.subTest(plan=plan):
-                        path = "/api/plans/" + plan.lower()
+                        path = "/api/test-plans/" + plan.lower()
                         changed = {"name": plan + " Line"}
                         self.assertEqual(request(address, path)[:2], (200, {"name": plan}))
                         self.assertEqual(request(address, path, "PUT", changed)[0], 401)

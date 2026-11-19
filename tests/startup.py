@@ -40,6 +40,22 @@ def running_api(directory, settings, executable=API / "bin/Debug/net10.0/Nami.Ap
             process.wait(timeout=10)
 
 
+@contextmanager
+def postgres_settings(directory):
+    cluster = str(directory / "cluster")
+    subprocess.run(["initdb", "-D", cluster, "-U", "nami", "-A", "trust",
+                    "--no-locale"], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["pg_ctl", "-D", cluster, "-l", str(directory / "pg.log"),
+                    "-o", f"-k '{directory}' -c listen_addresses='' -p 5432", "-w", "start"],
+                   check=True, stdout=subprocess.DEVNULL)
+    try:
+        yield {"Database__Provider": "PostgreSQL",
+               "ConnectionStrings__Nami": f"Host={directory};Port=5432;Database=postgres;Username=nami"}
+    finally:
+        subprocess.run(["pg_ctl", "-D", cluster, "-m", "fast", "-w", "stop"], check=True,
+                       stdout=subprocess.DEVNULL)
+
+
 def check_startup(directory, settings):
     with running_api(directory, settings) as address:
         with urlopen(address + "/health", timeout=5) as response:
@@ -93,22 +109,14 @@ class DatabaseStartup(unittest.TestCase):
     def test_postgresql(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            cluster = str(directory / "cluster")
-            subprocess.run(["initdb", "-D", cluster, "-U", "nami", "-A", "trust",
-                            "--no-locale"], check=True, stdout=subprocess.DEVNULL)
-            subprocess.run(["pg_ctl", "-D", cluster, "-l", str(directory / "pg.log"),
-                            "-o", f"-k '{tmp}' -c listen_addresses='' -p 5432", "-w", "start"],
-                           check=True, stdout=subprocess.DEVNULL)
-            try:
+            with postgres_settings(directory) as settings:
                 def sql(statement):
                     return subprocess.check_output(
                         ["psql", "-XAt", "-v", "ON_ERROR_STOP=1", "-h", tmp, "-p", "5432",
                          "-U", "nami", "-d", "postgres", "-c", statement], text=True).strip()
 
-                self.exercise(directory, {"Database__Provider": "PostgreSQL",
-                              "ConnectionStrings__Nami": f"Host={tmp};Port=5432;Database=postgres;Username=nami"}, sql)
-            finally:
-                subprocess.run(["pg_ctl", "-D", cluster, "-m", "fast", "-w", "stop"], check=True)
+                self.exercise(directory, settings, sql)
+
 
 
 if __name__ == "__main__":
