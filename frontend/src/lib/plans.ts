@@ -1,3 +1,5 @@
+import type { InterfaceProtocolProfiles } from "@/lib/protocol-profiles"
+
 export type PlanSummary = {
   id: string
   name: string
@@ -26,6 +28,7 @@ export type PlanInterface = {
   name: string
   networkId: string | null
   ipv4: string | null
+  protocolProfiles?: InterfaceProtocolProfiles
 }
 
 export type LinkEndpoint = { componentId: string; interfaceId: string | null }

@@ -1,4 +1,5 @@
 import { useId } from "react"
+import { ProtocolProfileFields } from "@/components/protocol-profile-fields"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -72,6 +73,10 @@ export function ComponentInterfaceFields({
           />
         </Field>
       </FieldGroup>
+      <ProtocolProfileFields
+        profiles={port.protocolProfiles}
+        onChange={(protocolProfiles) => onChange({ ...port, protocolProfiles })}
+      />
       {onDiscard && (
         <Button
           type="button"
