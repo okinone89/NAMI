@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from "react"
 import { ComponentInterfaceFields } from "@/components/component-interface-fields"
+import { ProtocolProfileDetails } from "@/components/protocol-profile-details"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -352,6 +353,7 @@ function ComponentDetails({
                     <dd>{port.ipv4 ?? "Unassigned"}</dd>
                   </div>
                 </dl>
+                <ProtocolProfileDetails profiles={port.protocolProfiles} />
               </li>
             ))}
           </ul>

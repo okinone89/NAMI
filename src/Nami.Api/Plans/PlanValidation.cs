@@ -35,6 +35,7 @@ internal static class PlanValidation
                 throw new ArgumentException($"Interface '{port.Id}' must belong to a component in the same plan.");
             if (port.NetworkId is { } networkId && !networks.ContainsKey(networkId))
                 throw new ArgumentException($"Interface '{port.Id}' must reference a network in the same plan.");
+            ValidateProtocolProfiles(port.ProtocolProfiles);
         }
 
         foreach (var link in plan.Links)
@@ -43,6 +44,25 @@ internal static class PlanValidation
                 throw new ArgumentException($"Link '{link.Id}' must use a known medium.");
             ValidateEndpoint(link.Id, link.Source, components, interfaces);
             ValidateEndpoint(link.Id, link.Target, components, interfaces);
+        }
+    }
+
+    private static void ValidateProtocolProfiles(InterfaceProtocolProfiles? profiles)
+    {
+        if (profiles?.EtherNetIp?.DeviceClass is { } deviceClass &&
+            deviceClass is not ("scanner" or "adapter" or "messaging"))
+        {
+            throw new ArgumentException("EtherNet/IP must use a known device class.");
+        }
+
+        if (profiles?.Profinet?.Roles?.Any(role => role is not ("controller" or "device" or "supervisor")) == true)
+            throw new ArgumentException("PROFINET must use known IO roles.");
+
+        if (profiles?.ModbusTcp is { } modbus &&
+            (modbus.Role is not (null or "client" or "server") || modbus.ServerPort is 0 ||
+             modbus.DownstreamDevices?.Any(device => device is null) == true))
+        {
+            throw new ArgumentException("Check the Modbus TCP role, server port, and downstream devices.");
         }
     }
 

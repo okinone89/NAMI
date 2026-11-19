@@ -61,7 +61,7 @@ internal static class PlanEndpoints
         catch (ArgumentException)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest,
-                title: "Check plan names, IDs, and topology references");
+                title: "Check plan names, IDs, topology references, and protocol profiles");
         }
 
         return await store.GetAsync(id, cancellationToken) is null
