@@ -1,7 +1,15 @@
-import { useMemo, useState, type DragEvent } from "react"
+import {
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react"
 import { IconNetwork, IconSchema } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
+import { DiagramSearch } from "@/components/diagram-search"
 import { DiagramLinks, LinkLegend } from "@/components/diagram-links"
 import { LinkInspector } from "@/components/link-inspector"
 import { NetworkDialog } from "@/components/network-dialog"
@@ -14,6 +22,9 @@ import {
   type DiagramBox,
 } from "@/lib/diagram-layout"
 import { placementType } from "@/lib/diagram-placement"
+import { scopedDiagram } from "@/lib/diagram-scope"
+import { searchDiagram, type DiagramSearchResult } from "@/lib/diagram-search"
+import { cn } from "@/lib/utils"
 import type { Component, DiagramPosition, PlanNetwork } from "@/lib/plans"
 
 type Props = PlanViewProps & {
@@ -32,6 +43,26 @@ export function DiagramView({
   onPlaceComponent,
   savePlan,
 }: Props) {
+  const [searchQuery, setSearchQuery] = useState("")
+  const [focusedNetworkId, setFocusedNetworkId] = useState<string | null>(null)
+  const [highlightedResult, setHighlightedResult] =
+    useState<DiagramSearchResult>()
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const highlightedNode = useRef<HTMLButtonElement>(null)
+  const searchResults = useMemo(
+    () => searchDiagram(plan, searchQuery),
+    [plan, searchQuery]
+  )
+  const matchIds = useMemo(
+    () => new Set(searchResults.map(({ componentId }) => componentId)),
+    [searchResults]
+  )
+  const highlightedComponentId = searchResults.find(
+    ({ componentId, networkId }) =>
+      componentId === highlightedResult?.componentId &&
+      networkId === highlightedResult.networkId
+  )?.componentId
+
   const [linkSelection, setLinkSelection] = useState<string | null>()
   const [networkSelection, setNetworkSelection] = useState<NetworkSelection>()
   const link = plan.links.find(({ id }) => id === linkSelection)
@@ -39,8 +70,12 @@ export function DiagramView({
     () => layoutDiagram(plan.components, plan.networks),
     [plan.components, plan.networks]
   )
+  const scope = useMemo(
+    () => scopedDiagram(plan, savedLayout, focusedNetworkId),
+    [plan, savedLayout, focusedNetworkId]
+  )
   const { componentBoxes, networkBoxes, guests, topLevel, enclosures } =
-    savedLayout
+    scope.layout
   const { bind, preview, error } = useTopologyDrag(
     canEdit,
     async ({ id, kind, position }) => {
@@ -64,9 +99,10 @@ export function DiagramView({
     }
   )
   const savedBoxes = [
-    ...componentBoxes.values(),
+    ...savedLayout.componentBoxes.values(),
+    ...savedLayout.networkBoxes.values(),
+    ...savedLayout.enclosures.values(),
     ...networkBoxes.values(),
-    ...enclosures.values(),
   ]
   const origin = {
     x: Math.min(0, ...savedBoxes.map(({ x }) => x)),
@@ -97,6 +133,19 @@ export function DiagramView({
       ),
     ])
   )
+  const showNetwork = useEffectEvent(() => {
+    const box = focusedNetworkId ? networks.get(focusedNetworkId) : undefined
+    canvasRef.current?.scrollTo(box ? box.x - 24 : 0, box ? box.y - 24 : 0)
+  })
+  useLayoutEffect(() => {
+    showNetwork()
+  }, [focusedNetworkId, scope.focused])
+  useLayoutEffect(() => {
+    const node = highlightedNode.current
+    node?.focus({ preventScroll: true })
+    node?.scrollIntoView({ block: "nearest", inline: "center" })
+  }, [highlightedComponentId, highlightedResult])
+
   const hostGroups = new Map(
     Array.from(guests, ([id, members]) => [
       id,
@@ -132,13 +181,23 @@ export function DiagramView({
       : component.hostId
         ? { x: origin.x + 16, y: origin.y + 34 }
         : origin
+    const highlighted = component.id === highlightedComponentId
+    const dimmed = searchQuery.trim() && !matchIds.has(component.id)
     return (
       <Button
         key={component.id}
+        ref={highlighted ? highlightedNode : undefined}
         variant="outline"
         aria-label={component.name}
         aria-haspopup="dialog"
-        className={`pointer-events-auto absolute z-20 flex-col items-start gap-1 px-4 py-3 text-left whitespace-normal transition-colors ${canEdit ? movable : ""}`}
+        aria-current={highlighted || undefined}
+        className={cn(
+          "pointer-events-auto absolute z-20 flex-col items-start gap-1 px-4 py-3 text-left whitespace-normal transition-colors",
+          canEdit && movable,
+          dimmed && "opacity-40",
+          highlighted &&
+            "z-30 ring-2 ring-primary ring-offset-2 ring-offset-background"
+        )}
         style={{
           left: box.x - (enclosure?.x ?? 0),
           top: box.y - (enclosure?.y ?? 0),
@@ -178,6 +237,40 @@ export function DiagramView({
 
   return (
     <>
+      {plan.networks.length > 0 && (
+        <div className="border-b px-4 py-3">
+          <label className="flex min-w-0 flex-col gap-1 text-xs">
+            Topology network
+            <select
+              className="min-h-11 w-full border border-input bg-background px-3 sm:max-w-xs"
+              value={scope.focused ? (focusedNetworkId ?? "") : ""}
+              onChange={(event) => {
+                setFocusedNetworkId(event.target.value || null)
+                setHighlightedResult(undefined)
+              }}
+            >
+              <option value="">Full topology</option>
+              {plan.networks.map(({ id, name }) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+      <DiagramSearch
+        query={searchQuery}
+        results={searchResults}
+        onQueryChange={(query) => {
+          setSearchQuery(query)
+          setHighlightedResult(undefined)
+        }}
+        onSelectResult={(result) => {
+          setFocusedNetworkId(result.networkId)
+          setHighlightedResult({ ...result })
+        }}
+      />
       {(canEdit || plan.links.length > 0) && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
           {canEdit && (
@@ -207,6 +300,7 @@ export function DiagramView({
         role="region"
         aria-label="Topology canvas"
         tabIndex={0}
+        ref={canvasRef}
       >
         <div
           className="relative min-h-[50svh] min-w-full"
@@ -235,7 +329,7 @@ export function DiagramView({
               onSelectLink={setLinkSelection}
             />
           )}
-          {plan.networks.map((network) => {
+          {scope.visibleNetworks.map((network) => {
             const box = networks.get(network.id)!
             const style = {
               left: box.x,
