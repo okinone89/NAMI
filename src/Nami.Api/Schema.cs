@@ -14,7 +14,8 @@ internal static class Schema
         """
         ALTER TABLE plans ADD COLUMN revision BIGINT NOT NULL DEFAULT 0;
         ALTER TABLE plans ADD COLUMN topology TEXT;
-        """
+        """,
+        "ALTER TABLE plans ADD COLUMN inventory_undo TEXT"
     ];
 
     public static void Upgrade(DbConnection database)

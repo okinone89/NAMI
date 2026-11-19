@@ -6,10 +6,15 @@ import {
   IconTable,
 } from "@tabler/icons-react"
 import { AddressAllocationDialog } from "@/components/address-allocation-dialog"
-import { InventoryTools } from "@/components/inventory-tools"
+import {
+  InventoryCommitAction,
+  InventoryUndoControl,
+} from "@/components/inventory-confirmation"
+import { InventoryDialog, InventoryTools } from "@/components/inventory-tools"
 import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Dialog } from "@/components/ui/dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { ConnectionList } from "@/components/connection-list"
 import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
@@ -46,6 +51,7 @@ export function InterfaceTable({
   onSelectComponent,
   savePlan,
   refreshPlan,
+  onEditorExpired,
 }: PlanViewProps) {
   const id = useId()
   const [query, setQuery] = useState("")
@@ -54,6 +60,9 @@ export function InterfaceTable({
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState<unknown>()
   const [allocation, setAllocation] = useState<{ interfaceId?: string }>()
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [bulkSelection, setBulkSelection] = useState<string[]>()
+  const selectedPorts = plan.interfaces.filter((port) => selected.has(port.id))
   const networksWithSubnets = new Set(
     plan.networks
       .filter((network) => network.subnet)
@@ -158,7 +167,28 @@ export function InterfaceTable({
 
   return (
     <div className="min-h-[50svh]">
-      <InventoryTools key={plan.id} planId={plan.id} canEdit={canEdit} />
+      <InventoryTools
+        key={plan.id}
+        planId={plan.id}
+        canEdit={canEdit}
+        onEditorExpired={onEditorExpired}
+        renderActions={(review) => (
+          <InventoryCommitAction
+            review={review}
+            onPlanChanged={refreshPlan}
+            onEditorExpired={onEditorExpired}
+          />
+        )}
+      >
+        {canEdit && (
+          <InventoryUndoControl
+            planId={plan.id}
+            revision={plan.revision}
+            onPlanChanged={refreshPlan}
+            onEditorExpired={onEditorExpired}
+          />
+        )}
+      </InventoryTools>
       {plan.interfaces.length ? (
         <>
           <div
@@ -179,6 +209,21 @@ export function InterfaceTable({
                 className="min-h-11"
               />
             </Field>
+            {canEdit && selectedPorts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs">{selectedPorts.length} selected</span>
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  disabled={Boolean(draftPort)}
+                  onClick={() =>
+                    setBulkSelection(selectedPorts.map(({ id }) => id))
+                  }
+                >
+                  Edit selected interfaces
+                </Button>
+              </div>
+            )}
             {canEdit && allocationCandidates.size > 0 && (
               <Button
                 variant="outline"
@@ -230,6 +275,11 @@ export function InterfaceTable({
             >
               <thead className="bg-muted text-muted-foreground">
                 <tr>
+                  {canEdit && (
+                    <th scope="col">
+                      <span className="sr-only">Select interfaces</span>
+                    </th>
+                  )}
                   {columns.map(({ key, label }) => {
                     const direction =
                       sort?.key === key ? sort.direction : undefined
@@ -283,6 +333,27 @@ export function InterfaceTable({
                   const interfaceLabel = `${component} / ${port.name}`
                   return (
                     <tr key={port.id} className="border-b">
+                      {canEdit && (
+                        <td className="w-11 pl-2">
+                          <label className="grid size-10 cursor-pointer place-items-center">
+                            <input
+                              type="checkbox"
+                              className="size-4 accent-primary"
+                              aria-label={`Select ${interfaceLabel}`}
+                              checked={selected.has(port.id)}
+                              onChange={(event) => {
+                                const checked = event.target.checked
+                                setSelected((previous) => {
+                                  const next = new Set(previous)
+                                  if (checked) next.add(port.id)
+                                  else next.delete(port.id)
+                                  return next
+                                })
+                              }}
+                            />
+                          </label>
+                        </td>
+                      )}
                       <td className="px-2 sm:px-4">
                         <Button
                           variant="link"
@@ -399,6 +470,33 @@ export function InterfaceTable({
         </section>
       )}
       <ConnectionList plan={plan} canEdit={canEdit} savePlan={savePlan} />
+      {canEdit && bulkSelection && (
+        <Dialog
+          open
+          onOpenChange={(open) => !open && setBulkSelection(undefined)}
+        >
+          <InventoryDialog
+            planId={plan.id}
+            bulk={{ interfaceIds: bulkSelection, networks: plan.networks }}
+            close={() => setBulkSelection(undefined)}
+            onEditorExpired={onEditorExpired}
+            renderActions={(review) => (
+              <InventoryCommitAction
+                review={{
+                  ...review,
+                  close: () => {
+                    setSelected(new Set())
+                    review.close()
+                  },
+                }}
+                bulkEdit
+                onPlanChanged={refreshPlan}
+                onEditorExpired={onEditorExpired}
+              />
+            )}
+          />
+        </Dialog>
+      )}
       {canEdit && allocation && (
         <AddressAllocationDialog
           plan={plan}

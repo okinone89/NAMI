@@ -2,7 +2,7 @@ import type {
   AddressConflictApproval,
   AddressIssue,
 } from "@/lib/address-issues"
-import { PlanRequestError } from "@/lib/plans"
+import { PlanRequestError, type Plan } from "@/lib/plans"
 
 export const inventoryFields = [
   { key: "componentId", label: "Component ID", headings: ["componentid"] },
@@ -72,7 +72,16 @@ export type InventoryPreviewRow = {
 export type InventoryPreview = {
   rows: InventoryPreviewRow[]
   stateToken: string
+  canApply: boolean
 }
+export type InventoryUndoStatus = {
+  importId: string
+  canUndo: boolean
+  reason: string | null
+}
+type InventoryCommitResult =
+  | { preview: InventoryPreview }
+  | { plan: Plan; undo: InventoryUndoStatus | null }
 export type InventoryMapping = (InventoryField | "")[]
 type SpreadsheetRow = { rowNumber: number; cells: string[] }
 type Spreadsheet = { headings: string[]; rows: SpreadsheetRow[] }
@@ -91,11 +100,60 @@ export async function previewInventory(
     body: JSON.stringify(request),
   })
   if (response.ok) return (await response.json()) as InventoryPreview
-  const problem = await response.json().catch(() => null)
-  throw new PlanRequestError(
-    response.status,
-    problem?.title ?? "Unable to preview the inventory. Try again."
+  throw await inventoryError(
+    response,
+    "Unable to preview the inventory. Try again."
   )
+}
+
+export async function commitInventory(
+  planId: string,
+  request: InventoryPreviewRequest,
+  stateToken: string,
+  bulkEdit: boolean
+): Promise<InventoryCommitResult> {
+  const response = await fetch(`${inventoryPath(planId)}/commit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...request, stateToken, bulkEdit }),
+  })
+  if (response.status === 409) return { preview: await response.json() }
+  if (response.ok) return await response.json()
+  throw await inventoryError(
+    response,
+    "Unable to apply the changes. Try again."
+  )
+}
+
+export async function getInventoryUndo(planId: string, signal: AbortSignal) {
+  const response = await fetch(`${inventoryPath(planId)}/undo`, {
+    signal,
+    cache: "no-store",
+  })
+  if (response.status === 204) return undefined
+  if (response.ok) return (await response.json()) as InventoryUndoStatus
+  throw await inventoryError(
+    response,
+    "Unable to check whether the import can be undone."
+  )
+}
+
+export async function undoInventory(planId: string, importId: string) {
+  const response = await fetch(`${inventoryPath(planId)}/undo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ importId }),
+  })
+  if (!response.ok)
+    throw await inventoryError(
+      response,
+      "Unable to undo the import. Try again."
+    )
+}
+
+async function inventoryError(response: Response, fallback: string) {
+  const problem = await response.json().catch(() => null)
+  return new PlanRequestError(response.status, problem?.title ?? fallback)
 }
 
 export function defaultInventoryMapping(headings: string[]): InventoryMapping {

@@ -1,4 +1,5 @@
 """Exercise inventory CSV export and import preview through the plan API."""
+from contextlib import nullcontext
 import csv
 from io import StringIO
 from pathlib import Path
@@ -8,7 +9,7 @@ from urllib.request import urlopen
 
 from editor_sessions import request, settings_for
 from plan_api import unlock
-from startup import running_api
+from startup import postgres_settings, running_api
 
 
 def inventory_plan(address, cookie):
@@ -30,6 +31,156 @@ def inventory_plan(address, cookie):
 
 
 class InventoryImport(unittest.TestCase):
+    def test_commits_selected_changes_and_additions_together_on_both_providers(self):
+        for provider in ("SQLite", "PostgreSQL"):
+            with self.subTest(provider=provider), TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                database = postgres_settings(directory) if provider == "PostgreSQL" else nullcontext({})
+                with database as settings, running_api(directory, {**settings_for(directory), **settings}) as address:
+                    cookie = unlock(address)
+                    path, saved = inventory_plan(address, cookie)
+                    preview_path, commit_path = (path + "/inventory/" + action for action in ("preview", "commit"))
+                    draft = {"rows": [
+                        {"rowNumber": 2, "interfaceId": "lan-a", "ipv4": "192.168.1.20"},
+                        {"rowNumber": 3, "componentName": "Packer", "interfaceName": "LAN",
+                         "networkId": "cell-a", "ipv4": "192.168.1.30"},
+                        {"rowNumber": 4, "componentName": "Skipped device", "interfaceName": "LAN", "skip": True},
+                    ]}
+                    status, preview, _ = request(address, preview_path, "POST", draft, cookie)
+                    self.assertEqual(status, 200)
+                    confirmation = {**draft, "stateToken": preview["stateToken"]}
+                    self.assertEqual(request(address, commit_path, "POST", confirmation)[0], 401)
+                    self.assertEqual(request(address, commit_path, "POST", confirmation, cookie)[:2], (409, preview))
+                    self.assertEqual(request(address, path)[:2], (200, saved))
+
+                    draft["keepAddressConflicts"] = [
+                        {"networkId": "cell-a", "ipv4": "192.168.1.20", "interfaceIds": ["lan-a", "lan-b"]}
+                    ]
+                    status, approved, _ = request(address, preview_path, "POST", draft, cookie)
+                    self.assertEqual(status, 200)
+                    self.assertTrue(approved["rows"][0]["canApply"])
+                    status, committed, _ = request(address, commit_path, "POST",
+                                                   {**draft, "stateToken": approved["stateToken"]}, cookie)
+                    self.assertEqual(status, 200)
+                    plan = committed["plan"]
+                    self.assertEqual(plan["revision"], saved["revision"] + 1)
+                    self.assertEqual([component["name"] for component in plan["components"]],
+                                     ['Filler, "Line A"', "Capper PLC", "Packer"])
+                    self.assertEqual([port["ipv4"] for port in plan["interfaces"]],
+                                     ["192.168.1.20", "192.168.1.20", "192.168.1.30"])
+                    self.assertEqual(plan["addressIssues"][0]["code"], "duplicateIpv4")
+                    self.assertEqual(request(address, path)[:2], (200, plan))
+
+    def test_stale_confirmation_refreshes_all_rows_without_writing_on_both_providers(self):
+        for provider in ("SQLite", "PostgreSQL"):
+            with self.subTest(provider=provider), TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                database = postgres_settings(directory) if provider == "PostgreSQL" else nullcontext({})
+                with database as settings, running_api(directory, {**settings_for(directory), **settings}) as address:
+                    cookie = unlock(address)
+                    path, saved = inventory_plan(address, cookie)
+                    draft = {"rows": [
+                        {"rowNumber": 2, "interfaceId": "lan-a", "ipv4": "192.168.1.40"},
+                        {"rowNumber": 3, "componentName": "Packer", "interfaceName": "LAN"},
+                    ]}
+                    status, preview, _ = request(address, path + "/inventory/preview", "POST", draft, cookie)
+                    self.assertEqual(status, 200)
+                    saved["interfaces"][0]["ipv4"] = "192.168.1.25"
+                    saved["interfaces"][1]["ipv4"] = "192.168.1.35"
+                    status, concurrent, _ = request(address, path, "PUT", saved, cookie)
+                    self.assertEqual(status, 200)
+
+                    commit_path = path + "/inventory/commit"
+                    status, refreshed, _ = request(address, commit_path, "POST",
+                                                   {**draft, "stateToken": preview["stateToken"]}, cookie)
+                    self.assertEqual(status, 409)
+                    self.assertNotEqual(refreshed["stateToken"], preview["stateToken"])
+                    self.assertEqual(refreshed["rows"][0]["before"]["ipv4"], "192.168.1.25")
+                    self.assertEqual(request(address, path)[:2], (200, concurrent))
+
+                    status, committed, _ = request(address, commit_path, "POST",
+                                                   {**draft, "stateToken": refreshed["stateToken"]}, cookie)
+                    self.assertEqual(status, 200)
+                    self.assertEqual([port["ipv4"] for port in committed["plan"]["interfaces"]],
+                                     ["192.168.1.40", "192.168.1.35", None])
+
+    def test_undo_requires_unchanged_records_and_preserves_later_edits_on_both_providers(self):
+        for provider in ("SQLite", "PostgreSQL"):
+            with self.subTest(provider=provider), TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                database = postgres_settings(directory) if provider == "PostgreSQL" else nullcontext({})
+                with database as settings:
+                    environment = {**settings_for(directory), **settings}
+                    with running_api(directory, environment) as address:
+                        cookie = unlock(address)
+                        path, _ = inventory_plan(address, cookie)
+                        inventory = path + "/inventory"
+                        draft = {"rows": [
+                            {"rowNumber": 2, "interfaceId": "lan-a", "ipv4": "192.168.1.40"},
+                            {"rowNumber": 3, "componentName": "Packer", "interfaceName": "LAN"},
+                            {"rowNumber": 4, "componentId": "plc-b", "interfaceName": "LAN B2"},
+                        ]}
+                        status, preview, _ = request(address, inventory + "/preview", "POST", draft, cookie)
+                        self.assertEqual(status, 200)
+                        status, committed, _ = request(address, inventory + "/commit", "POST",
+                                                       {**draft, "stateToken": preview["stateToken"]}, cookie)
+                        self.assertEqual(status, 200)
+                        after = committed["plan"]
+                        change = {"importId": committed["undo"]["importId"]}
+
+                    with running_api(directory, environment) as address:
+                        cookie = unlock(address)
+                        status, available, _ = request(address, inventory + "/undo")
+                        self.assertEqual((status, available["importId"], available["canUndo"]),
+                                         (200, change["importId"], True))
+                        self.assertEqual(request(address, inventory + "/undo", "POST", change)[0], 401)
+                        self.assertEqual(request(address, path)[:2], (200, after))
+
+                        later_edit = {**after, "interfaces": [
+                            {**port, "ipv4": "192.168.1.24"} if port["id"] == "lan-b" else port
+                            for port in after["interfaces"]
+                        ]}
+                        self.assertEqual(request(address, path, "PUT", later_edit, cookie)[0], 200)
+                        status, undone, _ = request(address, inventory + "/undo", "POST", change, cookie)
+                        self.assertEqual(status, 200)
+                        self.assertEqual([component["id"] for component in undone["components"]], ["plc-a", "plc-b"])
+                        self.assertEqual([(port["id"], port["ipv4"]) for port in undone["interfaces"]],
+                                         [("lan-a", "192.168.1.10"), ("lan-b", "192.168.1.24")])
+                        self.assertEqual(request(address, inventory + "/undo")[0], 204)
+                        self.assertEqual(request(address, inventory + "/undo", "POST", change, cookie)[0], 409)
+                        self.assertEqual(request(address, path)[:2], (200, undone))
+
+                        status, preview, _ = request(address, inventory + "/preview", "POST", draft, cookie)
+                        self.assertEqual(status, 200)
+                        status, committed, _ = request(address, inventory + "/commit", "POST",
+                                                       {**draft, "stateToken": preview["stateToken"]}, cookie)
+                        self.assertEqual(status, 200)
+                        after = committed["plan"]
+                        change = {"importId": committed["undo"]["importId"]}
+                        added = next(port for port in after["interfaces"] if port["name"] == "LAN B2")
+                        linked = {**after, "links": [{
+                            "id": "new-link", "medium": "wired",
+                            "source": {"componentId": "plc-a"},
+                            "target": {"componentId": "plc-b", "interfaceId": added["id"]},
+                        }]}
+                        status, linked, _ = request(address, path, "PUT", linked, cookie)
+                        self.assertEqual(status, 200)
+                        status, reason, _ = request(address, inventory + "/undo", "POST", change, cookie)
+                        self.assertEqual(status, 409)
+                        self.assertIn("references an imported", reason["title"])
+                        self.assertEqual(request(address, path)[:2], (200, linked))
+
+                        linked["links"] = []
+                        linked["interfaces"][0]["protocolProfiles"] = {"profinet": {"stationName": "updated"}}
+                        status, edited, _ = request(address, path, "PUT", linked, cookie)
+                        self.assertEqual(status, 200)
+                        status, unavailable, _ = request(address, inventory + "/undo")
+                        self.assertEqual(status, 200)
+                        self.assertFalse(unavailable["canUndo"])
+                        self.assertIn("changed after import", unavailable["reason"])
+                        self.assertEqual(request(address, inventory + "/undo", "POST", change, cookie)[0], 409)
+                        self.assertEqual(request(address, path)[:2], (200, edited))
+
     def test_export_preserves_stable_ids_and_quotes_component_names(self):
         with TemporaryDirectory() as tmp:
             directory = Path(tmp)

@@ -7,6 +7,7 @@ export type PlanViewProps = {
   onSelectComponent: (componentId: string, onMove?: () => void) => void
   savePlan: SavePlanSnapshot
   refreshPlan?: () => void
+  onEditorExpired?: () => void
 }
 
 export function EmptyPlanView({

@@ -17,6 +17,12 @@ async function openInventory(page: Page) {
       ...plan,
       networks: [
         { id: "pack", name: "Packaging", subnet: null, position: null },
+        {
+          id: "test",
+          name: "Isolated packaging",
+          subnet: null,
+          position: null,
+        },
       ],
       components: [
         {
@@ -139,4 +145,109 @@ test("pasted rows can be mapped, reviewed, corrected, cleared, or skipped", asyn
     "192.168.1.10",
     "192.168.1.20",
   ])
+})
+
+test("commits selected inventory rows and offers undo after reload", async ({
+  page,
+}) => {
+  const planId = await openInventory(page)
+  await page.getByRole("button", { name: "Import inventory" }).click()
+  const dialog = page.getByRole("dialog", { name: "Import inventory" })
+  await dialog
+    .getByLabel("Spreadsheet rows")
+    .fill(
+      "Component,Interface,IPv4\nCapper PLC,LAN B,192.168.1.25\nPacker PLC,LAN C,192.168.1.30\nSkipped PLC,LAN D,192.168.1.40"
+    )
+  await dialog.getByRole("button", { name: "Load pasted rows" }).click()
+  await dialog.getByRole("button", { name: "Preview import" }).click()
+  await dialog
+    .getByRole("region", { name: "Row 4" })
+    .getByLabel("Skip row")
+    .check()
+  await dialog.getByRole("button", { name: "Update preview" }).click()
+  await dialog.getByRole("button", { name: "Apply import" }).click()
+  await expect(dialog).toBeHidden()
+  const interfaces = page.getByRole("table", { name: "Interfaces" })
+  const capperAddress = interfaces.getByRole("textbox", {
+    name: "IPv4 address for Capper PLC / LAN B",
+  })
+  await expect(capperAddress).toHaveValue("192.168.1.25")
+  await expect(
+    interfaces.getByRole("row", { name: /Packer PLC/ })
+  ).toBeVisible()
+  await expect(
+    interfaces.getByRole("row", { name: /Skipped PLC/ })
+  ).toHaveCount(0)
+
+  await page.reload()
+  await page.getByRole("button", { name: "Table", exact: true }).click()
+  await page.getByRole("button", { name: "Undo import" }).click()
+  await expect(capperAddress).toHaveValue("192.168.1.20")
+  await expect(interfaces.getByRole("row", { name: /Packer PLC/ })).toHaveCount(
+    0
+  )
+  const current: Plan = await (
+    await page.request.get(`/api/plans/${planId}`)
+  ).json()
+  expect(current.components.map(({ id }) => id)).toEqual(["plc-a", "plc-b"])
+})
+
+test("reviews table selections before bulk editing and reconfirms a stale change", async ({
+  page,
+}) => {
+  const planId = await openInventory(page)
+  const interfaces = page.getByRole("table", { name: "Interfaces" })
+  await interfaces.getByRole("checkbox", { name: /Select Filler/ }).check()
+  await page.getByLabel("Filter interfaces").fill("capper")
+  await interfaces
+    .getByRole("checkbox", { name: "Select Capper PLC / LAN B" })
+    .check()
+  await page.getByRole("button", { name: "Edit selected interfaces" }).click()
+  const dialog = page.getByRole("dialog", { name: "Bulk edit interfaces" })
+  await dialog
+    .getByLabel("Network membership")
+    .selectOption({ label: "Isolated packaging" })
+  await dialog.getByRole("button", { name: "Preview changes" }).click()
+  const filler = dialog.getByRole("region", { name: "Row 1" })
+  const capper = dialog.getByRole("region", { name: "Row 2" })
+  await expect(filler.getByRole("group", { name: "Before" })).toContainText(
+    "192.168.1.10"
+  )
+  await expect(capper.getByRole("group", { name: "After" })).toContainText(
+    "Isolated packaging"
+  )
+
+  const planPath = `/api/plans/${planId}`
+  const plan: Plan = await (await page.request.get(planPath)).json()
+  plan.interfaces[0].ipv4 = "192.168.1.11"
+  const edited = await page.request.put(planPath, { data: plan })
+  expect(edited.ok()).toBe(true)
+  const apply = dialog.getByRole("button", { name: "Apply bulk changes" })
+  await apply.click()
+  await expect(dialog.getByRole("status")).toContainText(
+    "Review the refreshed preview"
+  )
+  await expect(filler.getByRole("group", { name: "Before" })).toContainText(
+    "192.168.1.11"
+  )
+  const afterFirstConfirm: Plan = await (
+    await page.request.get(planPath)
+  ).json()
+  expect(
+    afterFirstConfirm.interfaces.map(({ networkId }) => networkId)
+  ).toEqual(["pack", "pack"])
+
+  await apply.click()
+  await expect(dialog).toBeHidden()
+  await expect(
+    interfaces.getByRole("combobox", { name: "Network for Capper PLC / LAN B" })
+  ).toHaveValue("test")
+  const saved: Plan = await (await page.request.get(planPath)).json()
+  expect(
+    saved.interfaces.map(({ networkId, ipv4 }) => [networkId, ipv4])
+  ).toEqual([
+    ["test", "192.168.1.11"],
+    ["test", "192.168.1.20"],
+  ])
+  await expect(page.getByRole("button", { name: "Undo import" })).toHaveCount(0)
 })
