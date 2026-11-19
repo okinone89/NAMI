@@ -30,7 +30,10 @@ import { cn } from "@/lib/utils"
 import type { Component, DiagramPosition, PlanNetwork } from "@/lib/plans"
 
 type Props = PlanViewProps & {
-  onPlaceComponent: (position: DiagramPosition) => void
+  onPlaceComponent: (
+    position: DiagramPosition,
+    onPlaced: (componentId: string) => void
+  ) => void
 }
 
 type NetworkSelection = { network: PlanNetwork } | { position: DiagramPosition }
@@ -53,6 +56,7 @@ export function DiagramView({
   )
   const [highlightedResult, setHighlightedResult] =
     useState<DiagramSearchResult>()
+  const [placedComponentId, setPlacedComponentId] = useState<string>()
   const [movingComponentId, setMovingComponentId] = useState<string>()
   const movingComponent = canEdit
     ? plan.components.find(({ id }) => id === movingComponentId)
@@ -143,13 +147,17 @@ export function DiagramView({
       ),
     ])
   )
-  const showNetwork = useEffectEvent(() => {
-    const box = focusedNetworkId ? networks.get(focusedNetworkId) : undefined
+  const scrollToScope = useEffectEvent(() => {
+    const box = focusedNetworkId
+      ? networks.get(focusedNetworkId)
+      : placedComponentId
+        ? components.get(placedComponentId)
+        : undefined
     canvasRef.current?.scrollTo(box ? box.x - 24 : 0, box ? box.y - 24 : 0)
   })
   useLayoutEffect(() => {
-    showNetwork()
-  }, [focusedNetworkId, scope.focused])
+    scrollToScope()
+  }, [focusedNetworkId, scope.focused, placedComponentId])
   useLayoutEffect(() => {
     const node = highlightedNode.current
     node?.focus({ preventScroll: true })
@@ -270,8 +278,14 @@ export function DiagramView({
     if (type !== "network" && type !== "component") return
     event.preventDefault()
     const position = canvasPosition(event)
-    if (type === "component") onPlaceComponent(position)
-    else setNetworkSelection({ position })
+    if (type === "component") {
+      onPlaceComponent(position, (id) => {
+        if (!scope.focused) return
+        setFocusedNetworkId(null)
+        setHighlightedResult(undefined)
+        setPlacedComponentId(id)
+      })
+    } else setNetworkSelection({ position })
   }
 
   function moveTo(event: MouseEvent<HTMLDivElement>, component: Component) {
@@ -299,6 +313,7 @@ export function DiagramView({
               className="min-h-11 w-full border border-input bg-background px-3 sm:max-w-xs"
               value={scope.focused ? (focusedNetworkId ?? "") : ""}
               onChange={(event) => {
+                setPlacedComponentId(undefined)
                 setFocusedNetworkId(event.target.value || null)
                 setHighlightedResult(undefined)
                 setMovingComponentId(undefined)
@@ -322,6 +337,7 @@ export function DiagramView({
           setHighlightedResult(undefined)
         }}
         onSelectResult={(result) => {
+          setPlacedComponentId(undefined)
           setFocusedNetworkId(result.networkId)
           setHighlightedResult({ ...result })
           setMovingComponentId(undefined)
@@ -513,6 +529,11 @@ export function DiagramView({
               : undefined
           }
           savePlan={savePlan}
+          onCreated={(id) => {
+            if (!scope.focused) return
+            setFocusedNetworkId(id)
+            setHighlightedResult(undefined)
+          }}
           onClose={() => setNetworkSelection(undefined)}
         />
       )}

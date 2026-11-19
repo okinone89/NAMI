@@ -13,6 +13,7 @@ type Props = {
   network?: PlanNetwork
   position?: DiagramPosition
   savePlan: (plan: Plan) => Promise<void>
+  onCreated?: (networkId: string) => void
   onClose: () => void
 }
 
@@ -21,6 +22,7 @@ export function NetworkDialog({
   network,
   position,
   savePlan,
+  onCreated,
   onClose,
 }: Props) {
   const subnetId = useId()
@@ -29,20 +31,22 @@ export function NetworkDialog({
   async function save(name: string, fields: FormData) {
     const savedSubnet = subnet.trim() || null
     const addressing = { subnet: savedSubnet, ...readAllocationFields(fields) }
-    const networks = network
-      ? plan.networks.map((item) =>
-          item.id === network.id ? { ...item, name, ...addressing } : item
-        )
-      : [
-          ...plan.networks,
-          {
-            id: crypto.randomUUID(),
-            name,
-            ...addressing,
-            position: position ?? null,
-          },
-        ]
-    await savePlan({ ...plan, networks })
+    if (network) {
+      const networks = plan.networks.map((item) =>
+        item.id === network.id ? { ...item, name, ...addressing } : item
+      )
+      await savePlan({ ...plan, networks })
+      return
+    }
+
+    const created = {
+      id: crypto.randomUUID(),
+      name,
+      ...addressing,
+      position: position ?? null,
+    }
+    await savePlan({ ...plan, networks: [...plan.networks, created] })
+    onCreated?.(created.id)
   }
 
   return (

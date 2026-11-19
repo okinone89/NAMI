@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -39,8 +40,7 @@ internal static class PlanPackageEndpoints
         if (plan is null)
             return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "Plan not found");
 
-        var package = new PlanPackage(CurrentVersion,
-            new PackagePlan(plan.Name, plan.Networks, plan.Components, plan.Interfaces, plan.Links));
+        var package = new PlanPackage(CurrentVersion, new PackagePlan(plan));
         response.Headers.CacheControl = "no-store";
         return TypedResults.File(JsonSerializer.SerializeToUtf8Bytes(package, JsonOptions),
             "application/json", $"nami-{plan.Id}.nami.json");
@@ -70,13 +70,7 @@ internal static class PlanPackageEndpoints
                 title: "This plan package version is unsupported");
 
         // All other IDs have plan scope, so keeping them preserves the internal relationships.
-        var copy = new Plan(Guid.NewGuid().ToString(), contents.Name, Revision: 0)
-        {
-            Networks = contents.Networks,
-            Components = contents.Components,
-            Interfaces = contents.Interfaces,
-            Links = contents.Links
-        };
+        var copy = contents.ApplyTo(new Plan(Guid.NewGuid().ToString(), contents.Name, Revision: 0));
         try
         {
             await store.InsertAsync(copy, cancellationToken);
@@ -103,9 +97,12 @@ internal static class PlanPackageEndpoints
 internal sealed record PlanPackage(int Version, PackagePlan Plan);
 
 /// <summary>The plan graph with its embedded assets and plan-scoped IDs.</summary>
-internal sealed record PackagePlan(
-    string Name,
-    IReadOnlyList<PlanNetwork> Networks,
-    IReadOnlyList<Component> Components,
-    IReadOnlyList<PlanInterface> Interfaces,
-    IReadOnlyList<PlanLink> Links);
+internal sealed record PackagePlan : PlanTopology
+{
+    public required string Name { get; init; }
+
+    public PackagePlan() { }
+
+    [SetsRequiredMembers]
+    internal PackagePlan(Plan plan) : base(plan) => Name = plan.Name;
+}

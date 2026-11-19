@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
 import { editorPassphrase } from "./workspace-settings"
 
-async function openAllocationPlan(page: Page) {
+async function openAllocationPlan(page: Page, subnet: string | null = null) {
   const session = await page.request.post("/api/editor-session", {
     data: { passphrase: editorPassphrase },
   })
@@ -16,9 +16,7 @@ async function openAllocationPlan(page: Page) {
   const saved = await page.request.put(path, {
     data: {
       ...plan,
-      networks: [
-        { id: "cell", name: "Cell LAN", subnet: null, position: null },
-      ],
+      networks: [{ id: "cell", name: "Cell LAN", subnet, position: null }],
       components: [
         {
           id: "plc",
@@ -224,3 +222,36 @@ test("batch assignment shows exhaustion and requires confirmation of a refreshed
     })
   ).toHaveValue("192.168.1.30")
 })
+
+for (const step of ["preview", "commit"]) {
+  test(`switches to read-only when the editor session expires before allocation ${step}`, async ({
+    page,
+  }) => {
+    const path = await openAllocationPlan(page, "192.168.1.0/24")
+    await page.getByRole("button", { name: "Table", exact: true }).click()
+    const suggest = page.getByRole("button", {
+      name: "Suggest IPv4 address for Filler PLC / LAN B",
+    })
+    await suggest.click()
+    const dialog = page.getByRole("dialog", { name: "Suggest IPv4 address" })
+    const preview = dialog.getByRole("button", { name: "Preview suggestion" })
+    const confirm = dialog.getByRole("button", { name: "Accept suggestion" })
+    if (step === "commit") {
+      await preview.click()
+      await expect(confirm).toBeVisible()
+    }
+
+    await page.context().clearCookies()
+    await (step === "preview" ? preview : confirm).click()
+    await expect(dialog).toBeHidden()
+    await expect(suggest).toHaveCount(0)
+    await expect(
+      page.getByRole("button", { name: "Unlock editing" })
+    ).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Allocation exercise" })
+    ).toBeVisible()
+    const saved: Plan = await (await page.request.get(path)).json()
+    expect(saved.interfaces.find(({ id }) => id === "plc-b")?.ipv4).toBeNull()
+  })
+}

@@ -59,6 +59,8 @@ export type Plan = PlanSummary & {
   addressIssues?: AddressIssue[]
 }
 
+export type WithEditorAccess = <T>(request: Promise<T>) => Promise<T>
+
 export type SavePlanSnapshot = (
   plan: Plan,
   keepAddressConflicts?: AddressConflictApproval[]

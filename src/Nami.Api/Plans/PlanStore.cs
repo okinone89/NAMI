@@ -55,39 +55,39 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
         if (reader.IsDBNull(2))
             return plan;
 
-        var topology = JsonSerializer.Deserialize<Topology>(reader.GetString(2), JsonOptions)
+        var topology = JsonSerializer.Deserialize<PlanTopology>(reader.GetString(2), JsonOptions)
             ?? throw new InvalidOperationException("The saved plan topology is missing.");
-        return plan with
+        return topology.ApplyTo(plan with
         {
-            Networks = topology.Networks,
-            Components = topology.Components,
-            Interfaces = topology.Interfaces,
-            Links = topology.Links,
             InventoryUndo = reader.IsDBNull(3)
                 ? null
                 : JsonSerializer.Deserialize<InventoryUndoReceipt>(reader.GetString(3), JsonOptions)
-        };
+        });
     }
 
     // An unsuccessful save means the plan is missing or its revision has changed.
     public Task<bool> SaveAsync(Plan plan, CancellationToken cancellationToken = default) =>
         SaveAsync(plan, [], cancellationToken);
 
-    public Task<bool> SaveAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
+    public async Task<bool> SaveAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
         CancellationToken cancellationToken = default) =>
-        SaveAsync(plan, approvals, updateInventoryUndo: false, null, cancellationToken);
+        await SaveSnapshotAsync(plan, approvals, cancellationToken) is not null;
 
-    internal Task<bool> SaveInventoryAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
+    internal Task<Plan?> SaveSnapshotAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
+        CancellationToken cancellationToken) =>
+        SaveSnapshotAsync(plan, approvals, updateInventoryUndo: false, null, cancellationToken);
+
+    internal Task<Plan?> SaveInventoryAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
         InventoryUndoReceipt? inventoryUndo, CancellationToken cancellationToken) =>
-        SaveAsync(plan, approvals, updateInventoryUndo: true, inventoryUndo, cancellationToken);
+        SaveSnapshotAsync(plan, approvals, updateInventoryUndo: true, inventoryUndo, cancellationToken);
 
-    private async Task<bool> SaveAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
+    private async Task<Plan?> SaveSnapshotAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
         bool updateInventoryUndo, InventoryUndoReceipt? inventoryUndo, CancellationToken cancellationToken)
     {
         PlanValidation.Validate(plan);
         var current = await GetAsync(plan.Id, cancellationToken);
         if (current is null || current.Revision != plan.Revision)
-            return false;
+            return null;
 
         var issues = AddressValidation.BlockingIssues(current, plan, approvals);
         if (issues.Count > 0)
@@ -99,6 +99,7 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
             SET name = @name, topology = @topology, revision = revision + 1,
                 inventory_undo = CASE WHEN @updateInventoryUndo THEN NULLIF(@inventoryUndo, '') ELSE inventory_undo END
             WHERE id = @id AND revision = @revision
+            RETURNING revision
             """;
         AddParameter(command, "id", plan.Id);
         AddParameter(command, "name", plan.Name);
@@ -107,11 +108,16 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
         AddParameter(command, "inventoryUndo",
             inventoryUndo is null ? "" : JsonSerializer.Serialize(inventoryUndo, JsonOptions));
         AddParameter(command, "revision", plan.Revision);
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is null ? null : plan with
+        {
+            Revision = (long)result,
+            InventoryUndo = updateInventoryUndo ? inventoryUndo : current.InventoryUndo
+        };
     }
 
     private static string SerializeTopology(Plan plan) => JsonSerializer.Serialize(
-        new Topology(plan.Networks, plan.Components, plan.Interfaces, plan.Links), JsonOptions);
+        new PlanTopology(plan), JsonOptions);
 
     private static void AddParameter(DbCommand command, string name, object value)
     {
@@ -120,10 +126,4 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
         parameter.Value = value;
         command.Parameters.Add(parameter);
     }
-
-    private sealed record Topology(
-        IReadOnlyList<PlanNetwork> Networks,
-        IReadOnlyList<Component> Components,
-        IReadOnlyList<PlanInterface> Interfaces,
-        IReadOnlyList<PlanLink> Links);
 }

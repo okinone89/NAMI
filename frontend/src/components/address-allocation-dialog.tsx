@@ -12,6 +12,7 @@ import {
   previewAddressAllocation,
   type AddressAllocationPreview,
   type Plan,
+  type WithEditorAccess,
 } from "@/lib/plans"
 
 type Props = {
@@ -20,6 +21,7 @@ type Props = {
   interfaceId?: string
   onClose: () => void
   onPlanChanged?: () => void
+  withEditorAccess: WithEditorAccess
 }
 
 export function AddressAllocationDialog({
@@ -28,6 +30,7 @@ export function AddressAllocationDialog({
   interfaceId,
   onClose,
   onPlanChanged,
+  withEditorAccess,
 }: Props) {
   const [selected, setSelected] = useState(() =>
     interfaceId ? [interfaceId] : []
@@ -58,7 +61,9 @@ export function AddressAllocationDialog({
     setBusy(true)
     setFailure(undefined)
     try {
-      setPreview(await previewAddressAllocation(plan.id, selected))
+      setPreview(
+        await withEditorAccess(previewAddressAllocation(plan.id, selected))
+      )
     } catch (error) {
       setFailure(error)
     } finally {
@@ -71,7 +76,9 @@ export function AddressAllocationDialog({
     setBusy(true)
     setFailure(undefined)
     try {
-      const result = await commitAddressAllocation(plan.id, selected, preview)
+      const result = await withEditorAccess(
+        commitAddressAllocation(plan.id, selected, preview)
+      )
       onPlanChanged?.()
       if (result.preview) {
         setNotice(

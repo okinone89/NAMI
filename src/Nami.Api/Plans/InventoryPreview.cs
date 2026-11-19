@@ -208,15 +208,19 @@ internal static class InventoryPreview
             return candidate.Fail("unknownClearField", "Only network membership and IPv4 can be cleared.");
 
         var networkId = port?.NetworkId;
+        var networkName = NonBlank(row.NetworkName);
         if (clear.Contains("network"))
             networkId = null;
         else if (NonBlank(row.NetworkId) is { } requestedId)
         {
-            if (!index.Networks.ContainsKey(requestedId))
+            if (!index.Networks.TryGetValue(requestedId, out var network))
                 return candidate.Fail("unknownNetworkId", "The network ID is not in this plan.");
+            if (networkName is not null && !Names.Equals(network.Name.Trim(), networkName))
+                return candidate.Fail("inconsistentIds",
+                    "Network ID and Network identify different networks. Correct or ignore one of those columns.");
             networkId = requestedId;
         }
-        else if (NonBlank(row.NetworkName) is { } networkName)
+        else if (networkName is not null)
         {
             var networks = index.NetworksByName[networkName].Take(2).ToArray();
             if (networks.Length == 0)

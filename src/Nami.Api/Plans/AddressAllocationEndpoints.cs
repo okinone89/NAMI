@@ -41,8 +41,9 @@ internal static class AddressAllocationEndpoints
         };
         try
         {
-            if (await store.SaveAsync(proposed, cancellationToken))
-                return TypedResults.Ok(proposed with { Revision = proposed.Revision + 1 });
+            var saved = await store.SaveSnapshotAsync(proposed, [], cancellationToken);
+            if (saved is not null)
+                return TypedResults.Ok(saved);
         }
         catch (AddressValidationException error)
         {

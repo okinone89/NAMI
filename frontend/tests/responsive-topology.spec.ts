@@ -287,9 +287,9 @@ for (const width of [360, 390, 1024]) {
       await expect(
         target.getByText("192.168.1.73", { exact: true })
       ).toBeVisible()
-      await expect(
-        inspector.getByText("Protocol · PROFINET", { exact: true })
-      ).toBeVisible()
+      await expect(inspector.getByLabel("Protocol (optional)")).toHaveValue(
+        "PROFINET"
+      )
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth)
       ).toBe(width)

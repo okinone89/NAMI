@@ -15,7 +15,7 @@ async function openPlan(page: Page, snapshot: Partial<Plan>) {
   const saved = await page.request.put(`/api/plans/${plan.id}`, {
     data: { ...plan, ...snapshot },
   })
-  expect(saved.ok()).toBe(true)
+  await expect(saved).toBeOK()
   await page.goto(`/?plan=${plan.id}`)
   return plan.id
 }
@@ -62,6 +62,7 @@ test("refine a component-only link and inspect the saved connection as a visitor
     .getByLabel("Component")
     .selectOption("hmi")
   await editor.getByLabel("Medium").selectOption("wired")
+  await editor.getByLabel("Protocol (optional)").fill("PROFINET")
   await editor.getByRole("button", { name: "Save link" }).click()
 
   await expect(editor).toBeHidden()
@@ -70,6 +71,7 @@ test("refine a component-only link and inspect the saved connection as a visitor
   expect(saved.links).toHaveLength(1)
   const [link] = saved.links
   expect(link.source).toEqual({ componentId: "sw", interfaceId: null })
+  expect(link.protocol).toBe("PROFINET")
 
   await page
     .getByRole("button", { name: "Main switch to Line HMI (Wired)" })
@@ -80,6 +82,9 @@ test("refine a component-only link and inspect the saved connection as a visitor
     .getByLabel("Interface")
     .selectOption("port")
   await inspector.getByLabel("Medium").selectOption("wireless")
+  const protocol = inspector.getByLabel("Protocol (optional)")
+  await expect(protocol).toHaveValue("PROFINET")
+  await protocol.fill("Modbus TCP")
   await inspector.getByRole("button", { name: "Save link" }).click()
 
   await expect(inspector).toBeHidden()
@@ -90,6 +95,7 @@ test("refine a component-only link and inspect the saved connection as a visitor
       ...link,
       source: { componentId: "sw", interfaceId: "port" },
       medium: "wireless",
+      protocol: "Modbus TCP",
     },
   ])
 
@@ -105,6 +111,7 @@ test("refine a component-only link and inspect the saved connection as a visitor
   ).toBeVisible()
   await expect(inspector.getByText("Line HMI", { exact: true })).toBeVisible()
   await expect(inspector.getByText("Wireless", { exact: true })).toBeVisible()
+  await expect(inspector.getByText("Modbus TCP", { exact: true })).toBeVisible()
   await expect(
     inspector.getByRole("button", { name: "Save link" })
   ).toBeHidden()
@@ -236,6 +243,55 @@ test("place new components and networks by dragging their add controls onto the 
   ).toBeVisible()
 })
 
+test("keeps new items on screen when placed in a focused topology", async ({
+  page,
+}) => {
+  const planId = await openPlan(page, {
+    networks: [
+      { id: "existing", name: "Existing LAN", subnet: null, position: null },
+    ],
+  })
+  const canvas = page.getByRole("region", { name: "Topology canvas" })
+  const picker = page.getByLabel("Topology network")
+  const selectedNetwork = picker.locator("option:checked")
+  await picker.selectOption("existing")
+  await canvas.evaluate((element) => element.scrollTo(0, 0))
+
+  await page.getByRole("button", { name: "Add component" }).dragTo(canvas, {
+    targetPosition: { x: 80, y: 80 },
+  })
+  const component = page.getByRole("dialog", { name: "Add component" })
+  await component.getByLabel("Component name").fill("Unassigned PLC")
+  await component.getByLabel("Component type").fill("PLC")
+  await component.getByRole("button", { name: "Save component" }).click()
+  await expect(component).toBeHidden()
+  await expect(
+    canvas.getByRole("button", { name: "Unassigned PLC" })
+  ).toBeInViewport()
+
+  await picker.selectOption("existing")
+  await canvas.evaluate((element) => element.scrollTo(0, 0))
+  await canvas.scrollIntoViewIfNeeded()
+  await page.getByRole("button", { name: "Add network" }).dragTo(canvas, {
+    targetPosition: { x: 40, y: 200 },
+  })
+  const network = page.getByRole("dialog", { name: "Add network" })
+  await network.getByLabel("Network name").fill("New LAN")
+  await network.getByRole("button", { name: "Save network" }).click()
+  await expect(network).toBeHidden()
+  await expect(selectedNetwork).toHaveText("New LAN")
+  await expect(canvas.getByRole("button", { name: "New LAN" })).toBeInViewport()
+
+  const saved: Plan = await (
+    await page.request.get("/api/plans/" + planId)
+  ).json()
+  expect(saved.components[0].position).toEqual({ x: 80, y: 80 })
+  expect(saved.interfaces).toEqual([])
+  expect(
+    saved.networks.find(({ name }) => name === "New LAN")?.position
+  ).toEqual({ x: 40, y: 200 })
+})
+
 test("enclose guests with their host and distinguish selectable virtual, wired, and wireless links", async ({
   page,
 }) => {
@@ -348,4 +404,101 @@ test("enclose guests with their host and distinguish selectable virtual, wired, 
   await expect(
     inspector.getByText("Historian VM", { exact: true })
   ).toBeVisible()
+})
+
+test("keeps unassigned guests and their links in the host network", async ({
+  page,
+  hasTouch,
+}) => {
+  await openPlan(page, {
+    networks: [
+      { id: "plant", name: "Plant LAN", subnet: null, position: null },
+      { id: "control", name: "Control LAN", subnet: null, position: null },
+    ],
+    components: [
+      {
+        id: "host",
+        name: "Edge server",
+        type: "Server",
+        position: null,
+        hostId: null,
+      },
+      {
+        id: "guest",
+        name: "Unassigned VM",
+        type: "VM",
+        position: null,
+        hostId: "host",
+      },
+      {
+        id: "control-vm",
+        name: "Control VM",
+        type: "VM",
+        position: null,
+        hostId: "host",
+      },
+    ],
+    interfaces: [
+      {
+        id: "mgmt",
+        componentId: "host",
+        name: "Management",
+        networkId: "plant",
+        ipv4: null,
+      },
+      {
+        id: "vnic",
+        componentId: "guest",
+        name: "vNIC",
+        networkId: null,
+        ipv4: null,
+      },
+      {
+        id: "control-vnic",
+        componentId: "control-vm",
+        name: "vNIC",
+        networkId: "control",
+        ipv4: null,
+      },
+    ],
+    links: [
+      {
+        id: "virtual",
+        source: { componentId: "host", interfaceId: null },
+        target: { componentId: "guest", interfaceId: "vnic" },
+        medium: "virtual",
+        protocol: "Modbus TCP",
+      },
+    ],
+  })
+
+  await page.getByRole("button", { name: "Sign out" }).click()
+  const picker = page.getByLabel("Topology network")
+  await picker.selectOption("plant")
+  const enclosure = page.getByRole("group", {
+    name: "Edge server host enclosure",
+  })
+  await expect(
+    enclosure.getByRole("button", { name: "Unassigned VM", exact: true })
+  ).toBeVisible()
+  await expect(
+    enclosure.getByRole("button", { name: "Control VM", exact: true })
+  ).toHaveCount(0)
+  const virtualLink = page.getByRole("button", {
+    name: "Edge server to Unassigned VM / vNIC (Virtual)",
+  })
+  if (hasTouch) await virtualLink.tap()
+  else await virtualLink.click()
+  const inspector = page.getByRole("dialog", { name: "Link details" })
+  await expect(inspector.getByText("Modbus TCP", { exact: true })).toBeVisible()
+  await inspector.getByRole("button", { name: "Close" }).click()
+
+  await picker.selectOption("control")
+  await expect(
+    enclosure.getByRole("button", { name: "Control VM", exact: true })
+  ).toBeVisible()
+  await expect(
+    enclosure.getByRole("button", { name: "Unassigned VM", exact: true })
+  ).toHaveCount(0)
+  await expect(virtualLink).toHaveCount(0)
 })
