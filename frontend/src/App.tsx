@@ -13,6 +13,8 @@ import { PlanNetworks } from "@/components/plan-networks"
 import { ComponentEditor } from "@/components/component-editor"
 import { DiagramView } from "@/components/diagram-view"
 import { InterfaceTable } from "@/components/interface-table"
+import { diagramDragSource } from "@/lib/diagram-placement"
+import type { DiagramPosition, Plan } from "@/lib/plans"
 
 const views = {
   Diagram: {
@@ -27,7 +29,11 @@ const views = {
   },
 }
 type View = keyof typeof views
-type ComponentSelection = { planId: string; componentId: string | null }
+type ComponentSelection = {
+  planId: string
+  componentId: string | null
+  position?: DiagramPosition
+}
 
 export default function App() {
   const editorSession = useEditorSession()
@@ -43,8 +49,24 @@ export default function App() {
   const addingComponent =
     activeSelection?.componentId === null && editorSession.canEdit
 
-  function selectComponent(componentId: string | null) {
-    if (plan) setSelection({ planId: plan.id, componentId })
+  function selectComponent(
+    componentId: string | null,
+    position?: DiagramPosition
+  ) {
+    if (plan) setSelection({ planId: plan.id, componentId, position })
+  }
+
+  function saveComponent(next: Plan) {
+    const position = activeSelection?.position
+    if (!plan || !addingComponent || !position) return workspace.savePlan(next)
+
+    const existing = new Set(plan.components.map(({ id }) => id))
+    return workspace.savePlan({
+      ...next,
+      components: next.components.map((component) =>
+        existing.has(component.id) ? component : { ...component, position }
+      ),
+    })
   }
 
   const { icon: ViewIcon, heading, component: ActiveView } = views[view]
@@ -125,6 +147,7 @@ export default function App() {
             plan={plan}
             canEdit={editorSession.canEdit}
             savePlan={workspace.savePlan}
+            diagram={view === "Diagram"}
           />
         )}
         <section aria-label={view} className="border">
@@ -138,6 +161,7 @@ export default function App() {
                 variant="outline"
                 className="min-h-11"
                 onClick={() => selectComponent(null)}
+                {...(view === "Diagram" ? diagramDragSource("component") : {})}
               >
                 Add component
               </Button>
@@ -150,6 +174,7 @@ export default function App() {
               canEdit={editorSession.canEdit}
               savePlan={workspace.savePlan}
               onSelectComponent={selectComponent}
+              onPlaceComponent={(position) => selectComponent(null, position)}
             />
           ) : (
             <div className="grid min-h-[50svh] place-items-center px-5 text-center">
@@ -175,7 +200,7 @@ export default function App() {
           component={selectedComponent}
           canEdit={editorSession.canEdit}
           onClose={() => setSelection(undefined)}
-          savePlan={workspace.savePlan}
+          savePlan={saveComponent}
         />
       )}
       {creating && editorSession.canEdit && (

@@ -1,30 +1,18 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { PlanNameDialog } from "@/components/plan-name-dialog"
+import { NetworkDialog } from "@/components/network-dialog"
+import { diagramDragSource } from "@/lib/diagram-placement"
 import type { Plan, PlanNetwork } from "@/lib/plans"
 
 type Props = {
   plan: Plan
   canEdit: boolean
+  diagram: boolean
   savePlan: (plan: Plan) => Promise<void>
 }
 
-export function PlanNetworks({ plan, canEdit, savePlan }: Props) {
+export function PlanNetworks({ plan, canEdit, savePlan, diagram }: Props) {
   const [editing, setEditing] = useState<PlanNetwork | "new">()
-
-  async function save(name: string) {
-    if (!editing) return
-    const networks =
-      editing === "new"
-        ? [
-            ...plan.networks,
-            { id: crypto.randomUUID(), name, subnet: null, position: null },
-          ]
-        : plan.networks.map((network) =>
-            network.id === editing.id ? { ...network, name } : network
-          )
-    await savePlan({ ...plan, networks })
-  }
 
   if (!canEdit && !plan.networks.length) return null
 
@@ -61,18 +49,17 @@ export function PlanNetworks({ plan, canEdit, savePlan }: Props) {
           variant="outline"
           className="min-h-11"
           onClick={() => setEditing("new")}
+          {...(diagram ? diagramDragSource("network") : {})}
         >
           Add network
         </Button>
       )}
       {editing && canEdit && (
-        <PlanNameDialog
-          title={editing === "new" ? "Add network" : "Edit network"}
-          label="Network name"
-          action="Save network"
-          name={editing === "new" ? undefined : editing.name}
+        <NetworkDialog
+          plan={plan}
+          network={editing === "new" ? undefined : editing}
           onClose={() => setEditing(undefined)}
-          onSave={save}
+          savePlan={savePlan}
         />
       )}
     </section>
