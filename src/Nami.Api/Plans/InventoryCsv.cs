@@ -7,15 +7,32 @@ internal static class InventoryCsv
     public static byte[] Export(Plan plan)
     {
         var ports = plan.Interfaces.ToLookup(port => port.ComponentId);
+        var components = plan.Components.ToDictionary(component => component.Id);
+        var interfaces = plan.Interfaces.ToDictionary(port => port.Id);
+        var partners = plan.Links.SelectMany(link => new[]
+        {
+            (End: link.Source, Partner: link.Target, Link: link),
+            (End: link.Target, Partner: link.Source, Link: link)
+        }.Distinct()).ToLookup(item => item.End);
         var networks = plan.Networks.ToDictionary(network => network.Id);
         var csv = new StringBuilder("\uFEFFComponent,Interface,Component type,Network,Network subnet,IPv4,Link partner,Partner port,Connection type,Link protocol\r\n");
         foreach (var component in plan.Components)
         {
-            foreach (var port in ports[component.Id].DefaultIfEmpty())
+            var componentEnd = new LinkEndpoint(component.Id);
+            if (!ports[component.Id].Any() || partners.Contains(componentEnd))
+                WriteRows(component, null, componentEnd);
+            foreach (var port in ports[component.Id])
+                WriteRows(component, port, new LinkEndpoint(component.Id, port.Id));
+        }
+        void WriteRows(Component component, PlanInterface? port, LinkEndpoint endpoint)
+        {
+            var network = port?.NetworkId is { } networkId ? networks[networkId] : null;
+            foreach (var (_, partner, link) in partners[endpoint].DefaultIfEmpty())
             {
-                var network = port?.NetworkId is { } networkId ? networks[networkId] : null;
-                string?[] cells = [component.Name, port?.Name, component.Type, network?.Name,
-                    network?.Subnet, port?.Ipv4, null, null, null, null];
+                var medium = link?.Medium == LinkMedium.FiberOptic ? "FO" : link?.Medium.ToString();
+                string?[] cells = [component.Name, port?.Name, component.Type, network?.Name, network?.Subnet,
+                    port?.Ipv4, partner is null ? null : components[partner.ComponentId].Name,
+                    partner?.InterfaceId is { } id ? interfaces[id].Name : null, medium, link?.Protocol];
                 csv.AppendJoin(',', cells.Select(Escape));
                 csv.Append("\r\n");
             }

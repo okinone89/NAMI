@@ -8,41 +8,43 @@ internal sealed record InventoryUndoRequest(string? ImportId);
 
 internal sealed record InventoryUndoReceipt(
     string ImportId,
-    IReadOnlyList<InventoryInterfaceUndo> Interfaces,
+    IReadOnlyList<InventoryRecordUndo<PlanInterface>> Interfaces,
     IReadOnlyDictionary<string, string> AddedComponents,
-    IReadOnlyList<AddressConflictApproval> PreviousConflicts)
+    IReadOnlyList<AddressConflictApproval> PreviousConflicts,
+    IReadOnlyList<InventoryRecordUndo<PlanLink>>? Links = null)
 {
     public static InventoryUndoReceipt Create(Plan before, Plan after)
     {
         var existingComponents = before.Components.Select(component => component.Id).ToHashSet();
         var addedComponents = after.Components.Where(component => !existingComponents.Contains(component.Id))
             .ToDictionary(component => component.Id, InventoryPreview.Hash);
-        var existingInterfaces = before.Interfaces.ToDictionary(port => port.Id);
-        var interfaces = after.Interfaces.Where(port => port != existingInterfaces.GetValueOrDefault(port.Id))
-            .Select(port => new InventoryInterfaceUndo(
-                port.Id, InventoryPreview.Hash(port), existingInterfaces.GetValueOrDefault(port.Id))).ToArray();
+        var interfaces = InventoryRecordUndo<PlanInterface>.Capture(before.Interfaces, after.Interfaces, port => port.Id);
+        var links = InventoryRecordUndo<PlanLink>.Capture(before.Links, after.Links, link => link.Id);
         var affected = interfaces.Select(port => port.Id).ToHashSet();
         var previousConflicts = ConflictApprovals(before)
             .Where(conflict => conflict.InterfaceIds.Any(affected.Contains)).ToArray();
-        return new(Guid.NewGuid().ToString(), interfaces, addedComponents, previousConflicts);
+        return new(Guid.NewGuid().ToString(), interfaces, addedComponents, previousConflicts, links);
     }
 
     public InventoryUndoReview Review(Plan current)
     {
-        var ports = current.Interfaces.ToDictionary(port => port.Id);
+        var linkChanges = Links ?? [];
         var components = current.Components.ToDictionary(component => component.Id);
-        if (Interfaces.Any(change => !ports.TryGetValue(change.Id, out var port) ||
-                InventoryPreview.Hash(port) != change.AfterHash) ||
+        if (InventoryRecordUndo<PlanInterface>.IsStale(Interfaces, current.Interfaces, port => port.Id) ||
             AddedComponents.Any(change => !components.TryGetValue(change.Key, out var component) ||
                 InventoryPreview.Hash(component) != change.Value))
         {
             return Unavailable("An affected interface or component changed after import.");
         }
 
+        if (InventoryRecordUndo<PlanLink>.IsStale(linkChanges, current.Links, link => link.Id))
+            return Unavailable("An affected link changed after import.");
+        var restoredLinks = InventoryRecordUndo<PlanLink>.Restore(linkChanges, current.Links, link => link.Id);
+
         var removedPorts = Interfaces.Where(change => change.Before is null).Select(change => change.Id).ToHashSet();
         bool ReferencesAddition(LinkEndpoint end) => AddedComponents.ContainsKey(end.ComponentId) ||
             (end.InterfaceId is { } portId && removedPorts.Contains(portId));
-        if (current.Links.Any(link => ReferencesAddition(link.Source) || ReferencesAddition(link.Target)) ||
+        if (restoredLinks.Any(link => ReferencesAddition(link.Source) || ReferencesAddition(link.Target)) ||
             current.Components.Any(component => component.HostId is { } host && AddedComponents.ContainsKey(host)) ||
             current.Interfaces.Any(port => AddedComponents.ContainsKey(port.ComponentId) && !removedPorts.Contains(port.Id)))
         {
@@ -57,6 +59,7 @@ internal sealed record InventoryUndoReceipt(
 
         var proposed = current with
         {
+            Links = restoredLinks,
             Components = current.Components.Where(component => !AddedComponents.ContainsKey(component.Id)).ToArray(),
             Interfaces = current.Interfaces.Where(port => !removedPorts.Contains(port.Id))
                 .Select(port => restore.GetValueOrDefault(port.Id, port)).ToArray()
@@ -79,7 +82,30 @@ internal sealed record InventoryUndoReceipt(
                 issue.Interfaces.Select(port => port.InterfaceId).ToArray()));
 }
 
-internal sealed record InventoryInterfaceUndo(string Id, string AfterHash, PlanInterface? Before);
+internal sealed record InventoryRecordUndo<T>(string Id, string? AfterHash, T? Before) where T : class
+{
+    public static InventoryRecordUndo<T>[] Capture(IReadOnlyList<T> before, IReadOnlyList<T> after, Func<T, string> id)
+    {
+        var previous = before.ToDictionary(id);
+        return after.Where(item => !Equals(item, previous.GetValueOrDefault(id(item))))
+            .Select(item => new InventoryRecordUndo<T>(id(item), InventoryPreview.Hash(item), previous.GetValueOrDefault(id(item))))
+            .ToArray();
+    }
+
+    public static bool IsStale(IReadOnlyList<InventoryRecordUndo<T>> changes, IReadOnlyList<T> current, Func<T, string> id)
+    {
+        var records = current.ToDictionary(id);
+        return changes.Any(change => !records.TryGetValue(change.Id, out var record) ||
+            InventoryPreview.Hash(record) != change.AfterHash);
+    }
+
+    public static T[] Restore(IReadOnlyList<InventoryRecordUndo<T>> changes, IReadOnlyList<T> current, Func<T, string> id)
+    {
+        var affected = changes.ToDictionary(change => change.Id);
+        return current.Select(item => affected.TryGetValue(id(item), out var change) ? change.Before : item)
+            .OfType<T>().ToArray();
+    }
+}
 
 internal sealed record InventoryUndoReview(
     InventoryUndoStatus Status, Plan? Proposed, IReadOnlyList<AddressConflictApproval> Approvals);

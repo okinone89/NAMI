@@ -59,11 +59,12 @@ internal sealed record InventoryPreviewRow(
 internal sealed record InventoryPreviewResponse(
     IReadOnlyList<InventoryPreviewRow> Rows,
     string StateToken,
-    bool CanApply);
+    bool CanApply,
+    IReadOnlyList<InventoryLinkPreview> Links);
 
 internal sealed record InventoryPreviewResult(InventoryPreviewResponse Response, Plan Proposed);
 
-internal static class InventoryPreview
+internal static partial class InventoryPreview
 {
     private static readonly StringComparer Names = StringComparer.OrdinalIgnoreCase;
 
@@ -78,7 +79,7 @@ internal static class InventoryPreview
         var candidates = request.Rows!.Select(row => Match(row, index)).ToArray();
         foreach (var group in candidates.Where(row => row.TargetInterfaceId is not null).GroupBy(row => row.TargetInterfaceId))
         {
-            if (group.Count() > 1)
+            if (group.Select(row => row.After).Distinct().Skip(1).Any())
             {
                 foreach (var row in group)
                     row.Errors.Add(new("repeatedTarget", "Multiple rows target this interface. Correct or skip one of the rows."));
@@ -87,7 +88,7 @@ internal static class InventoryPreview
         ResolveNewComponents(candidates);
 
         var edits = candidates.Where(row => row.Component is not null && row.Errors.Count == 0).ToArray();
-        var changes = edits.Where(row => row.Before != row.After).ToArray();
+        var changes = edits.Where(row => row.Before != row.After).DistinctBy(row => row.TargetInterfaceId).ToArray();
         var byInterface = changes.ToDictionary(row => row.After!.Id, row => row.After!);
         var proposed = current with
         {
@@ -97,13 +98,23 @@ internal static class InventoryPreview
                 .Concat(changes.Where(row => row.Before is null).Select(row => row.After!)).ToArray()
         };
 
+        var linkPreview = ResolveLinks(proposed, edits);
+        var linkChanges = linkPreview.Where(link => link.Before != link.After).ToArray();
+        var linksById = linkChanges.ToDictionary(link => link.After.Id, link => link.After);
+        proposed = proposed with
+        {
+            Links = proposed.Links.Select(link => linksById.GetValueOrDefault(link.Id, link))
+                .Concat(linkChanges.Where(link => link.Before is null).Select(link => link.After)).ToArray()
+        };
+        var changedLinkRows = linkChanges.SelectMany(link => link.RowNumbers).ToHashSet();
         var addressIssues = ByInterface(AddressValidation.Inspect(proposed));
         var blockers = AddressValidation.BlockingIssues(current, proposed, request.KeepAddressConflicts);
         var blockingIssues = ByInterface(blockers);
         var previewRows = candidates.Select(row =>
         {
             var componentOnly = row.Component is not null && row.TargetInterfaceId is null && row.Errors.Count == 0;
-            var hasChanges = componentOnly ? row.AddsComponent : row.After is not null && row.Before != row.After;
+            var hasChanges = changedLinkRows.Contains(row.Input.RowNumber) || row.AddsComponent ||
+                (row.After is not null && row.Before != row.After);
             var visible = row.TargetInterfaceId is not null && row.Errors.Count == 0;
             var issues = visible ? addressIssues[row.TargetInterfaceId!].ToArray() : [];
             var blocking = visible ? blockingIssues[row.TargetInterfaceId!].ToArray() : [];
@@ -119,6 +130,7 @@ internal static class InventoryPreview
         {
             current.Id,
             Rows = previewRows,
+            Links = linkPreview,
             Records = candidates.Where(row => !row.Input.Skip).Select(row => new
             {
                 row.Before,
@@ -128,7 +140,7 @@ internal static class InventoryPreview
         });
         var canApply = blockers.Count == 0 &&
             previewRows.Any(row => row.CanApply) && previewRows.All(row => row.Errors.Count == 0);
-        return new(new(previewRows, stateToken, canApply), proposed);
+        return new(new(previewRows, stateToken, canApply, linkPreview), proposed);
     }
 
     private static void ResolveNewComponents(IEnumerable<Candidate> candidates)
@@ -164,18 +176,8 @@ internal static class InventoryPreview
             return candidate;
         }
 
-        (string Heading, string? Value)[] unsupportedFields =
-        [
-            ("Network subnet", row.NetworkSubnet),
-            ("Link partner", row.LinkPartner),
-            ("Partner port", row.PartnerPort),
-            ("Connection type", row.ConnectionType),
-            ("Link protocol", row.LinkProtocol)
-        ];
-        var populated = unsupportedFields.Where(field => NonBlank(field.Value) is not null)
-            .Select(field => field.Heading).ToArray();
-        if (populated.Length > 0)
-            return candidate.Fail("unsupportedFields", $"Inventory import does not yet support {string.Join(", ", populated)}.");
+        if (NonBlank(row.NetworkSubnet) is not null)
+            return candidate.Fail("unsupportedFields", "Inventory import does not yet support Network subnet.");
 
         var componentId = NonBlank(row.ComponentId);
         var interfaceId = NonBlank(row.InterfaceId);
