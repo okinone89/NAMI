@@ -246,7 +246,7 @@ class InventoryImport(unittest.TestCase):
                     ["Cabinet", "", "Other", "", "", "", "", "", "", ""],
                 ])
 
-    def test_preview_blocks_populated_subnet_and_link_fields_until_they_can_be_imported(self):
+    def test_preview_blocks_populated_subnet_until_it_can_be_imported(self):
         with TemporaryDirectory() as tmp:
             directory = Path(tmp)
             with running_api(directory, settings_for(directory)) as address:
@@ -260,8 +260,7 @@ class InventoryImport(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertFalse(preview["canApply"])
                 messages = " ".join(error["message"] for error in preview["rows"][0]["errors"])
-                for field in ("Network subnet", "Link partner", "Partner port", "Connection type", "Link protocol"):
-                    self.assertIn(field, messages)
+                self.assertIn("Network subnet", messages)
                 status, _, _ = request(address, path + "/inventory/commit", "POST",
                                        {"rows": rows, "stateToken": preview["stateToken"]}, cookie)
                 self.assertEqual(status, 409)
@@ -419,7 +418,9 @@ class InventoryImport(unittest.TestCase):
                 plan["interfaces"].append({"id": "lan-c", "componentId": "plc-b", "name": " lan b "})
                 seed_legacy_topology(settings, plan)
                 draft = {"rows": [{"rowNumber": 2, "componentName": "capper plc",
-                                   "interfaceName": " LAN B ", "ipv4": "192.168.1.42"}], "answers": {}}
+                                   "interfaceName": " LAN B ", "ipv4": "192.168.1.42"},
+                                  {"rowNumber": 3, "interfaceId": "lan-a", "linkPartner": "capper plc",
+                                   "partnerPort": " LAN B ", "connectionType": "Wired"}], "answers": {}}
 
                 def preview():
                     status, body, _ = request(address, path + "/inventory/preview", "POST", draft, cookie)
@@ -431,13 +432,14 @@ class InventoryImport(unittest.TestCase):
                 component, = initial["decisions"]
                 self.assertEqual({c["id"] for c in component["choices"]}, {"plc-b", "plc-c"})
                 self.assertIn("Capper PLC", component["message"])
-                self.assertEqual(component["rowNumbers"], [2])
+                self.assertEqual(component["rowNumbers"], [2, 3])
                 draft["answers"][component["id"]] = "plc-a"
                 self.assertFalse(preview()["canApply"])
                 draft["answers"][component["id"]] = "plc-b"
                 second = preview()
                 self.assertFalse(second["canApply"])
                 port, = second["decisions"]
+                self.assertEqual(port["rowNumbers"], [2, 3])
                 self.assertEqual({c["id"] for c in port["choices"]}, {"lan-b", "lan-c"})
                 self.assertIn("Capper PLC", port["message"])
                 draft["answers"][port["id"]] = "lan-b"
@@ -447,6 +449,9 @@ class InventoryImport(unittest.TestCase):
                 status, body, _ = request(address, path + "/inventory/commit", "POST",
                                           {**draft, "stateToken": resolved["stateToken"]}, cookie)
                 self.assertEqual(status, 200)
+                link, = body["plan"]["links"]
+                self.assertCountEqual([link["source"], link["target"]], [
+                    {"componentId": "plc-a", "interfaceId": "lan-a"}, {"componentId": "plc-b", "interfaceId": "lan-b"}])
                 self.assertEqual({p["id"]: p["ipv4"] for p in body["plan"]["interfaces"]},
                                  {"lan-a": "192.168.1.10", "lan-b": "192.168.1.42", "lan-c": None})
 
