@@ -4,6 +4,8 @@ namespace Nami.Api.Plans;
 
 internal static class InventoryCsv
 {
+    internal static string MediumName(LinkMedium medium) => medium == LinkMedium.FiberOptic ? "FO" : medium.ToString();
+
     public static byte[] Export(Plan plan)
     {
         var ports = plan.Interfaces.ToLookup(port => port.ComponentId);
@@ -29,7 +31,7 @@ internal static class InventoryCsv
             var network = port?.NetworkId is { } networkId ? networks[networkId] : null;
             foreach (var (_, partner, link) in partners[endpoint].DefaultIfEmpty())
             {
-                var medium = link?.Medium == LinkMedium.FiberOptic ? "FO" : link?.Medium.ToString();
+                var medium = link is null ? null : MediumName(link.Medium);
                 string?[] cells = [component.Name, port?.Name, component.Type, network?.Name, network?.Subnet,
                     port?.Ipv4, partner is null ? null : components[partner.ComponentId].Name,
                     partner?.InterfaceId is { } id ? interfaces[id].Name : null, medium, link?.Protocol];

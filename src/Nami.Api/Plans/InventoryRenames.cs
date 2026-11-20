@@ -13,6 +13,9 @@ internal static partial class InventoryPreview
                      .GroupBy(row => row.Component!.Id))
         {
             var rows = group.ToArray();
+            ResolveRepeatedInterfaces(rows, index, decisions);
+            if (rows.Any(row => row.Errors.Count > 0))
+                continue;
             var name = rows[0].Component!.Name;
             var evidence = Evidence(rows, addresses);
             var owners = evidence.Select(item => item.Port.ComponentId).Distinct().ToArray();
@@ -32,6 +35,9 @@ internal static partial class InventoryPreview
                          row.After is not null && row.Errors.Count == 0).GroupBy(row => row.TargetInterfaceId))
         {
             var rows = group.ToArray();
+            ResolveRepeatedInterfaces(rows, index, decisions);
+            if (rows.Any(row => row.Errors.Count > 0))
+                continue;
             var component = rows[0].Component!;
             var name = rows[0].After!.Name;
             var evidence = Evidence(rows, addresses).Where(item => item.Port.ComponentId == component.Id).ToArray();
@@ -90,14 +96,12 @@ internal static partial class InventoryPreview
         var candidateIds = choices.Select(item => item.Id).ToHashSet();
         bool Touches(LinkEndpoint end) => kind == "component" ? candidateIds.Contains(end.ComponentId) :
             end.InterfaceId is { } portId && candidateIds.Contains(portId);
-        string Endpoint(LinkEndpoint end) => index.Components[end.ComponentId].Name +
-            (end.InterfaceId is { } portId ? " / " + index.Interfaces[portId].Name : "");
         var links = index.Plan.Links.Where(link => Touches(link.Source) || Touches(link.Target))
             .OrderBy(link => link.Id, StringComparer.Ordinal).ToArray();
         var ports = affected.OrderBy(port => port.Id, StringComparer.Ordinal).ToArray();
         var matches = evidence.Select(item =>
             $"Row {item.Row.Input.RowNumber}: {index.StoredNetworks[item.Port.NetworkId!].Name}, {item.Port.Ipv4} matches {index.Components[item.Port.ComponentId].Name} / {item.Port.Name}.").Distinct();
-        var linkNames = links.Select(link => $"{Endpoint(link.Source)} ↔ {Endpoint(link.Target)}");
+        var linkNames = links.Select(index.Wiring.Connection);
         var message = $"Does '{name}' rename an existing {kind}?\n" + string.Join("\n", matches) +
             "\nAffected ports: " + string.Join(", ", ports.Select(port => $"{index.Components[port.ComponentId].Name} / {port.Name}")) +
             "\nAffected links: " + (links.Length == 0 ? "none" : string.Join(", ", linkNames));

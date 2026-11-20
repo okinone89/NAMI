@@ -400,6 +400,8 @@ internal static partial class InventoryPreview
 
     private sealed class PlanIndex(Plan plan)
     {
+        private InventoryWiring? wiring;
+        public InventoryWiring Wiring => wiring ??= new(plan);
         public Plan Plan => plan;
         public Dictionary<string, Component> Components { get; } = plan.Components.ToDictionary(component => component.Id);
         public Dictionary<string, PlanInterface> Interfaces { get; } = plan.Interfaces.ToDictionary(port => port.Id);

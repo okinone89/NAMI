@@ -51,27 +51,40 @@ internal static partial class InventoryPreview
 
         public string Name(LinkEndpoint end) => end.InterfaceId is null
             ? components[end.ComponentId].Name : $"{components[end.ComponentId].Name} / {ports[end.InterfaceId].Name}";
+        public bool Matches(LinkEndpoint end, string? componentName, string? portName) =>
+            Names.Equals(components[end.ComponentId].Name, componentName) &&
+            Names.Equals(end.InterfaceId is { } id ? ports[id].Name : null, portName);
+
         public string Connection(PlanLink link)
         {
             var label = $"{Name(link.Source)} ↔ {Name(link.Target)}";
             return Existing[EndpointPair.Of(link.Source, link.Target)].Count() > 1 ? $"{label} ({link.Id})" : label;
         }
 
+        public static string Details(PlanLink link) => $"{InventoryCsv.MediumName(link.Medium)}, {link.Protocol ?? "no protocol"}";
+
         public string? Summary(PlanLink? before, PlanLink? after)
         {
             if (after is null)
-                return $"Remove {Connection(before!)}";
-            if (before is null || (before.Source == after.Source && before.Target == after.Target))
+                return $"Remove {Connection(before!)} ({Details(before!)})";
+            if (before is null)
+                return $"Add {Connection(after)} ({Details(after)})";
+            if (before == after)
                 return null;
+            var details = before.Medium != after.Medium || before.Protocol != after.Protocol
+                ? $"{Details(before)} → {Details(after)}" : null;
+            if (before.Source == after.Source && before.Target == after.Target)
+                return $"Update {Connection(before)}: {details}";
             var stableSource = before.Source == after.Source;
             var shared = stableSource ? before.Source : before.Target;
             var oldPartner = stableSource ? before.Target : before.Source;
             var newPartner = stableSource ? after.Target : after.Source;
-            return $"Move {Name(shared)} from {Name(oldPartner)} to {Name(newPartner)}";
+            var move = $"Move {Name(shared)} from {Name(oldPartner)} to {Name(newPartner)}";
+            return details is null ? move : $"{move} ({details})";
         }
     }
 
-    private static Dictionary<EndpointPair, PlanLink> ResolveLinkMoves(Plan inventory, InventoryWiring wiring, HashSet<string> removedIds,
+    private static Dictionary<EndpointPair, PlanLink> ResolveLinkMoves(Plan inventory, InventoryWiring wiring, HashSet<string> protectedIds,
         Dictionary<EndpointPair, List<Candidate>> declarations, InventoryDecisions decisions,
         out HashSet<EndpointPair> unresolved)
     {
@@ -82,7 +95,7 @@ internal static partial class InventoryPreview
         // opposite end instead becomes evidence for the move-or-keep decision.
         bool MayMove(LinkEndpoint endpoint, PlanLink link)
         {
-            if (removedIds.Contains(link.Id))
+            if (protectedIds.Contains(link.Id))
                 return false;
             return !declarations.TryGetValue(EndpointPair.Of(link.Source, link.Target), out var claims) ||
                 claims.All(claim => Source(claim) != endpoint);
@@ -115,7 +128,7 @@ internal static partial class InventoryPreview
             var scope = Hash(new { inventory.Id, ends, rows });
             foreach (var number in rows)
                 answer = decisions.Choose("wiring", scope, target, "Choose a connection",
-                    $"Review the existing wiring for {target}.", number, choices);
+                    $"Review the existing wiring for {target}.", number, choices, "connection");
             var moved = candidates.SingleOrDefault(link => "move:" + link.Id == answer);
             if (answer is null)
                 unresolved.Add(ends);
