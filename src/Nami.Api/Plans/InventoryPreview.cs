@@ -72,7 +72,7 @@ internal static partial class InventoryPreview
     private static readonly IEqualityComparer<string> Names = InventoryNames.Comparer;
 
     public static bool IsValid(InventoryPreviewRequest request) =>
-        request.Rows is { Count: > 0 } rows &&
+        request.Rows is { } rows &&
         rows.All(row => row is not null && row.RowNumber > 0) &&
         rows.Select(row => row.RowNumber).Distinct().Count() == rows.Count;
 

@@ -270,8 +270,6 @@ export function parseInventory(input: string): Spreadsheet {
       "Use all ten current headers exactly once. Choose Export inventory CSV to obtain the current format."
     )
   }
-  if (!rows.length)
-    throw new Error("Provide at least one inventory row below the headers.")
   if (
     rows.some((row) =>
       row.cells.slice(headings.length).some((cell) => cell.trim())
