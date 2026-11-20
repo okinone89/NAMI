@@ -1,0 +1,142 @@
+"""Review, commit and undo cabling changes through the inventory HTTP API."""
+from contextlib import ExitStack
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+
+from editor_sessions import request, settings_for
+from inventory_import import inventory_plan
+from plan_api import unlock
+from startup import postgres_settings, running_api
+
+
+def port(name):
+    return {"componentId": "plc-b", "interfaceId": name}
+
+
+def declares(port_name, number=2, **fields):
+    return {"rowNumber": number, "interfaceId": "lan-a", "linkPartner": "Capper PLC",
+            "partnerPort": port_name, **fields}
+
+
+class InventoryMoves(unittest.TestCase):
+    def start(self, partners, provider="SQLite"):
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        directory = Path(stack.enter_context(TemporaryDirectory()))
+        settings = settings_for(directory)
+        if provider == "PostgreSQL":
+            settings.update(stack.enter_context(postgres_settings(directory)))
+        self.address = stack.enter_context(running_api(directory, settings))
+        self.cookie = unlock(self.address)
+        self.path, plan = inventory_plan(self.address, self.cookie)
+        plan["interfaces"].extend({**port(name), "id": name, "name": name} for name in ["P07", "P08", "P09"])
+        plan["links"] = [{"id": name, "source": port(name),
+                          "target": {"componentId": "plc-a", "interfaceId": "lan-a"},
+                          "medium": "fiberOptic", "protocol": "EtherCAT"} for name in partners]
+        return self.put(plan)
+
+    def put(self, plan):
+        status, result, _ = request(self.address, self.path, "PUT", plan, self.cookie)
+        self.assertEqual(status, 200, result)
+        return result
+
+    def post(self, action, data):
+        return request(self.address, self.path + "/inventory/" + action, "POST", data, self.cookie)[:2]
+
+    def preview(self, draft):
+        status, result = self.post("preview", draft)
+        self.assertEqual(status, 200, result)
+        return result
+
+    def apply(self, draft):
+        preview = self.preview(draft)
+        self.assertTrue(preview["canApply"], preview)
+        self.assertEqual(preview["decisions"], [])
+        status, saved = self.post("commit", {**draft, "stateToken": preview["stateToken"]})
+        self.assertEqual(status, 200, saved)
+        return saved
+
+    def test_reciprocal_claim_needs_one_move_or_keep_both_answer(self):
+        original = self.start(["P08"])
+        draft = {"rows": [declares("P09", connectionType="Wired"),
+                          {"rowNumber": 7, "interfaceId": "P08", "linkPartner": 'Filler, "Line A"',
+                           "partnerPort": "LAN A"}]}
+        preview = self.preview(draft)
+        self.assertFalse(preview["canApply"])
+        self.assertEqual(self.post("commit", {**draft, "stateToken": preview["stateToken"]})[0], 409)
+        decision, = preview["decisions"]
+        self.assertEqual(decision["rowNumbers"], [2, 7])
+        move, = [c for c in decision["choices"] if "Move" in c["label"]]
+        keep, = [c for c in decision["choices"] if "Keep both" in c["label"]]
+        kept = self.apply({**draft, "answers": {decision["id"]: keep["id"]}})
+        self.assertEqual(len(kept["plan"]["links"]), 2)
+        self.assertIn(original["links"][0], kept["plan"]["links"])
+        self.assertEqual(self.post("undo", {"importId": kept["undo"]["importId"]})[0], 200)
+        moved = self.apply({**draft, "answers": {decision["id"]: move["id"]}})
+        self.assertEqual(moved["plan"]["links"], [{**original["links"][0], "source": port("P09"), "medium": "wired"}])
+
+    def test_selected_multi_peer_rows_protect_retained_links_and_offer_specific_moves(self):
+        original = self.start(["P07", "P08"])
+        draft = {"rows": [declares("P09", connectionType="Virtual")]}
+        ambiguous = self.preview(draft)
+        decision, = ambiguous["decisions"]
+        self.assertTrue(all(any(name in choice["label"] for choice in decision["choices"])
+                            for name in ["P07", "P08", "Add"]))
+        chosen = self.apply({**draft, "answers": {decision["id"]: "move:P07"}})
+        first, second = original["links"]
+        self.assertEqual(chosen["plan"]["links"], [{**first, "source": port("P09"), "medium": "virtual"}, second])
+        self.assertEqual(self.post("undo", {"importId": chosen["undo"]["importId"]})[0], 200)
+        retained = self.apply({"rows": [declares("P07"), declares("P09", 3)]})
+        self.assertEqual(retained["plan"]["links"], [first, {**second, "source": port("P09")}])
+        added = self.apply({"rows": [declares("P07"), declares("P09", 3), declares("P08", 4, connectionType="Wired")]})
+        self.assertEqual(len(added["plan"]["links"]), 3)
+        self.assertTrue(all(link in added["plan"]["links"] for link in retained["plan"]["links"]))
+
+    def test_two_new_targets_cannot_silently_claim_the_same_installed_link(self):
+        original = self.start(["P08"])
+        draft = {"rows": [declares("P07", connectionType="Virtual"), declares("P09", 3, connectionType="Wired")]}
+        waiting = self.preview(draft)
+        self.assertFalse(waiting["canApply"], waiting)
+        first = waiting["decisions"][0]
+        self.assertEqual(first, self.preview({"rows": draft["rows"][::-1]})["decisions"][0])
+        selected = self.apply({**draft, "answers": {first["id"]: "move:P08"}})
+        self.assertEqual(len(selected["plan"]["links"]), 2)
+        moved, = [link for link in selected["plan"]["links"] if link["id"] == original["links"][0]["id"]]
+        self.assertEqual(moved["source"], port("P07"))
+
+    def test_explicit_removal_is_exact_stale_checked_and_reversible_on_both_providers(self):
+        for provider in ["SQLite", "PostgreSQL"]:
+            with self.subTest(provider=provider):
+                original = self.start(["P07", "P08", "P09"], provider)
+                draft = {"rows": [{"rowNumber": 2, "interfaceId": "lan-a"}]}
+                self.assertFalse(self.preview(draft)["canApply"])
+                draft["rows"][0]["removeLinkIds"] = ["P08"]
+                stale = self.preview(draft)
+                self.assertTrue(stale["canApply"], stale)
+                original["links"][1]["protocol"] = "Fieldbus"
+                latest = self.put(original)
+                self.assertEqual(self.post("commit", {**draft, "stateToken": stale["stateToken"]})[0], 409)
+                removed = self.apply(draft)
+                self.assertEqual(removed["plan"]["links"], [latest["links"][0], latest["links"][2]])
+                undo = {"importId": removed["undo"]["importId"]}
+                status, restored = self.post("undo", undo)
+                self.assertEqual(status, 200, restored)
+                self.assertEqual(restored["links"], latest["links"])
+                removed = self.apply(draft)
+                edited = removed["plan"]
+                edited["interfaces"] = [p for p in edited["interfaces"] if p["id"] != "P08"]
+                self.put(edited)
+                self.assertEqual(self.post("undo", {"importId": removed["undo"]["importId"]})[0], 409)
+
+    def test_replacement_retains_the_link_and_its_metadata(self):
+        original = self.start(["P08"])
+        saved = self.apply({"rows": [declares("P09")]})
+        self.assertEqual(saved["plan"]["links"], [{**original["links"][0], "source": port("P09")}])
+        status, undone = self.post("undo", {"importId": saved["undo"]["importId"]})
+        self.assertEqual(status, 200, undone)
+        self.assertEqual(undone["links"], original["links"])
+
+
+if __name__ == "__main__":
+    unittest.main()

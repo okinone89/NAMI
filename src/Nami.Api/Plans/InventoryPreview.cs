@@ -26,7 +26,8 @@ internal sealed record InventoryImportRow(
     string? LinkPartner = null,
     string? PartnerPort = null,
     string? ConnectionType = null,
-    string? LinkProtocol = null);
+    string? LinkProtocol = null,
+    IReadOnlyList<string>? RemoveLinkIds = null);
 
 /// <summary>The stored or proposed inventory values for an interface.</summary>
 internal sealed record InventoryValues(
@@ -54,7 +55,8 @@ internal sealed record InventoryPreviewRow(
     bool CanApply,
     IReadOnlyList<InventoryRowError> Errors,
     IReadOnlyList<AddressIssue> AddressIssues,
-    IReadOnlyList<AddressIssue> BlockingAddressIssues);
+    IReadOnlyList<AddressIssue> BlockingAddressIssues,
+    IReadOnlyList<InventoryConnection> Connections);
 
 /// <summary>The import preview and a token for detecting changes to the affected records.</summary>
 internal sealed record InventoryPreviewResponse(
@@ -94,13 +96,15 @@ internal static partial class InventoryPreview
                 .Concat(changes.Where(row => row.Before is null).Select(row => row.After!)).ToArray()
         };
 
-        var linkPreview = ResolveLinks(proposed, edits, index, decisions);
+        var wiring = new InventoryWiring(proposed);
+        var linkPreview = ResolveLinks(proposed, edits, index, decisions, wiring);
         var linkChanges = linkPreview.Where(link => link.Before != link.After).ToArray();
-        var linksById = linkChanges.ToDictionary(link => link.After.Id, link => link.After);
+        var linksById = linkChanges.Where(change => change.Before is not null)
+            .ToDictionary(change => change.Before!.Id, change => change.After);
         proposed = proposed with
         {
-            Links = proposed.Links.Select(link => linksById.GetValueOrDefault(link.Id, link))
-                .Concat(linkChanges.Where(link => link.Before is null).Select(link => link.After)).ToArray()
+            Links = proposed.Links.Select(link => linksById.GetValueOrDefault(link.Id, link)).OfType<PlanLink>()
+                .Concat(linkChanges.Where(link => link.Before is null).Select(link => link.After!)).ToArray()
         };
         var changedLinkRows = linkChanges.SelectMany(link => link.RowNumbers).ToHashSet();
         var addressIssues = ByInterface(AddressValidation.Inspect(proposed));
@@ -119,7 +123,9 @@ internal static partial class InventoryPreview
                 row.Before is not null || (componentOnly && !row.AddsComponent) ? index.Values(row.Component!, row.Before) : null,
                 row.After is not null || componentOnly ? index.Values(row.Component!, row.After) : null,
                 row.Input.Clear ?? [], row.AddsComponent, hasChanges,
-                hasChanges && row.Errors.Count == 0 && blocking.Length == 0, row.Errors, issues, blocking);
+                hasChanges && row.Errors.Count == 0 && blocking.Length == 0, row.Errors, issues, blocking,
+                row.Component is null ? [] : wiring.ByEndpoint[Source(row)]
+                    .Select(link => new InventoryConnection(link.Id, wiring.Connection(link))).ToArray());
         }).ToArray();
 
         var stateToken = Hash(new
@@ -135,7 +141,7 @@ internal static partial class InventoryPreview
                 SubnetAfter = row.After?.NetworkId is { } afterId ? index.Networks[afterId].Subnet : null,
             })
         });
-        var canApply = blockers.Count == 0 &&
+        var canApply = decisions.Pending.Count == 0 && blockers.Count == 0 &&
             previewRows.Any(row => row.CanApply) && previewRows.All(row => row.Errors.Count == 0);
         return new(new(previewRows, stateToken, canApply, decisions.Pending, linkPreview), proposed);
     }
