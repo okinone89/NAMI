@@ -1,5 +1,15 @@
 import {
   IconAccessPoint,
+  IconWaveSine,
+  IconRotateClockwise,
+  IconHierarchy,
+  IconArrowsSplit,
+  IconPlugConnected,
+  IconServer2,
+  IconShieldCheck,
+  IconTransform,
+  IconCamera,
+  IconBarcode,
   IconCpu,
   IconDeviceDesktop,
   IconDeviceDesktopAnalytics,
@@ -16,6 +26,7 @@ import {
   builtInSymbols,
   componentShapes,
   defaultSymbol,
+  type BuiltInSymbol,
 } from "@/lib/component-appearance"
 import type { Component } from "@/lib/plans"
 
@@ -28,6 +39,16 @@ const symbols = {
   server: IconServer,
   vm: IconDeviceDesktopCode,
   computer: IconDeviceDesktop,
+  vfd: IconWaveSine,
+  servoDrive: IconRotateClockwise,
+  ioLinkMaster: IconHierarchy,
+  ioLinkHub: IconArrowsSplit,
+  ioLinkDevice: IconPlugConnected,
+  remoteIo: IconServer2,
+  safetyPlc: IconShieldCheck,
+  protocolGateway: IconTransform,
+  visionCamera: IconCamera,
+  barcodeReader: IconBarcode,
   generic: IconDeviceSdCard,
 }
 
@@ -37,7 +58,7 @@ const shapes = {
   diamond: IconDiamond,
 }
 
-function AppearanceMark({ component }: { component: Component }) {
+export function AppearanceMark({ component }: { component: Component }) {
   const { appearance, type } = component
 
   if (appearance?.kind === "custom") {
@@ -62,11 +83,22 @@ function AppearanceMark({ component }: { component: Component }) {
   }
 
   const symbol = appearance?.symbol ?? defaultSymbol(type)
+  return <BuiltInMark symbol={symbol} />
+}
+
+export function BuiltInMark({
+  symbol,
+  decorative = false,
+}: {
+  symbol: BuiltInSymbol
+  decorative?: boolean
+}) {
   const Symbol = symbols[symbol]
   return (
     <Symbol
-      role="img"
-      aria-label={`${builtInSymbols[symbol]} symbol`}
+      role={decorative ? undefined : "img"}
+      aria-hidden={decorative || undefined}
+      aria-label={decorative ? undefined : `${builtInSymbols[symbol]} symbol`}
       className="size-6 shrink-0"
     />
   )

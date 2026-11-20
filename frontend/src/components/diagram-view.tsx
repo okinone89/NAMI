@@ -7,14 +7,20 @@ import {
   type DragEvent,
   type MouseEvent,
 } from "react"
-import { IconAlertTriangle, IconNetwork, IconSchema } from "@tabler/icons-react"
+import { flushSync } from "react-dom"
+import { IconAlertTriangle, IconSchema } from "@tabler/icons-react"
+import { ComponentLibrary } from "@/components/component-library"
 import { DiagramComponentLabel } from "@/components/diagram-component-label"
 import { Button } from "@/components/ui/button"
 import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
 import { DiagramSearch } from "@/components/diagram-search"
 import { DiagramLinks, LinkLegend } from "@/components/diagram-links"
 import { LinkInspector } from "@/components/link-inspector"
-import { NetworkDialog } from "@/components/network-dialog"
+import { InterfaceLinkDialog } from "./interface-link-dialog"
+import { builtInSymbols } from "@/lib/component-appearance"
+import { duplicateComponent, deleteComponent } from "@/lib/component-actions"
+import { confirmLinkRemoval } from "@/lib/link-labels"
+import { networkColor } from "@/lib/network-color"
 import { useTopologyDrag } from "@/hooks/use-topology-drag"
 import {
   canvasWidth,
@@ -27,16 +33,21 @@ import { placementType } from "@/lib/diagram-placement"
 import { scopedDiagram } from "@/lib/diagram-scope"
 import { searchDiagram, type DiagramSearchResult } from "@/lib/diagram-search"
 import { cn } from "@/lib/utils"
-import type { Component, DiagramPosition, PlanNetwork } from "@/lib/plans"
+import type {
+  Component,
+  DiagramPosition,
+  PlanInterface,
+  PlanLink,
+  Plan,
+} from "@/lib/plans"
 
 type Props = PlanViewProps & {
   onPlaceComponent: (
     position: DiagramPosition,
-    onPlaced: (componentId: string) => void
+    onPlaced: (componentId: string) => void,
+    initialType?: string
   ) => void
 }
-
-type NetworkSelection = { network: PlanNetwork } | { position: DiagramPosition }
 
 const defaultHeight = 400
 const movable = "touch-none cursor-grab active:cursor-grabbing"
@@ -47,13 +58,47 @@ export function DiagramView({
   onSelectComponent,
   onPlaceComponent,
   savePlan,
+  filter,
+  updateFilter,
 }: Props) {
-  const [searchQuery, setSearchQuery] = useState("")
-  const [focusedNetworkId, setFocusedNetworkId] = useState<string | null>(() =>
-    window.matchMedia("(width < 40rem)").matches
-      ? (plan.networks[0]?.id ?? null)
-      : null
-  )
+  const { query: searchQuery, networkId: focusedNetworkId } = filter
+  const setFocusedNetworkId = (networkId: string | null) =>
+    updateFilter({ networkId })
+  const [zoom, setZoom] = useState(1)
+  const [fitInset, setFitInset] = useState({ x: 0, y: 0 })
+  const linkLayer = useRef<SVGSVGElement>(null)
+  const [library, setLibrary] = useState(false)
+  type MenuTarget = { component: Component } | { link: PlanLink }
+  const [menu, setMenu] = useState<MenuTarget & { x: number; y: number }>()
+  function openMenu(target: MenuTarget, x: number, y: number) {
+    if (!canEdit || savingAction) return
+    setMenu({
+      ...target,
+      x: Math.max(0, Math.min(x, window.innerWidth - 248)),
+      y: Math.max(
+        0,
+        Math.min(y, window.innerHeight - ("link" in target ? 94 : 300))
+      ),
+    })
+  }
+  const [source, setSource] = useState<PlanInterface>()
+  const [target, setTarget] = useState<string>()
+  const [actionError, setActionError] = useState("")
+  const [savingAction, setSavingAction] = useState(false)
+  async function applyAction(next: Plan) {
+    setMenu(undefined)
+    setSavingAction(true)
+    setActionError("")
+    try {
+      await savePlan(next)
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Could not save the plan."
+      )
+    } finally {
+      setSavingAction(false)
+    }
+  }
   const [highlightedResult, setHighlightedResult] =
     useState<DiagramSearchResult>()
   const [placedComponentId, setPlacedComponentId] = useState<string>()
@@ -62,6 +107,7 @@ export function DiagramView({
     ? plan.components.find(({ id }) => id === movingComponentId)
     : undefined
   const canvasRef = useRef<HTMLDivElement>(null)
+  const pan = useRef<{ id: number; x: number; y: number } | null>(null)
   const movePrompt = useRef<HTMLDivElement>(null)
   const highlightedNode = useRef<HTMLButtonElement>(null)
   const searchResults = useMemo(
@@ -69,8 +115,13 @@ export function DiagramView({
     [plan, searchQuery]
   )
   const matchIds = useMemo(
-    () => new Set(searchResults.map(({ componentId }) => componentId)),
-    [searchResults]
+    () =>
+      new Set(
+        searchResults
+          .filter((r) => !focusedNetworkId || r.networkId === focusedNetworkId)
+          .map(({ componentId }) => componentId)
+      ),
+    [searchResults, focusedNetworkId]
   )
   const highlightedComponentId = searchResults.find(
     ({ componentId, networkId }) =>
@@ -79,48 +130,44 @@ export function DiagramView({
   )?.componentId
 
   const [linkSelection, setLinkSelection] = useState<string | null>()
-  const [networkSelection, setNetworkSelection] = useState<NetworkSelection>()
+
   const link = plan.links.find(({ id }) => id === linkSelection)
   const savedLayout = useMemo(
-    () => layoutDiagram(plan.components, plan.networks),
-    [plan.components, plan.networks]
+    () => layoutDiagram(plan.components, plan.interfaces),
+    [plan.components, plan.interfaces]
   )
   const scope = useMemo(
-    () => scopedDiagram(plan, savedLayout, focusedNetworkId),
-    [plan, savedLayout, focusedNetworkId]
+    () =>
+      scopedDiagram(
+        plan,
+        savedLayout,
+        focusedNetworkId,
+        searchQuery.trim() ? matchIds : undefined
+      ),
+    [plan, savedLayout, focusedNetworkId, searchQuery, matchIds]
   )
-  const { componentBoxes, networkBoxes, guests, topLevel } = scope.layout
+  const { componentBoxes, guests, topLevel } = scope.layout
   const { bind, place, preview, saving, error } = useTopologyDrag(
-    canEdit && !movingComponent,
-    async ({ id, kind, position }) => {
-      if (kind === "network") {
-        await savePlan({
-          ...plan,
-          networks: plan.networks.map((network) =>
-            network.id === id ? { ...network, position } : network
-          ),
-        })
-      } else {
-        const positions = moveDiagramComponents(savedLayout, id, position)
-        await savePlan({
-          ...plan,
-          components: plan.components.map((component) => {
-            const moved = positions.get(component.id)
-            return moved ? { ...component, position: moved } : component
-          }),
-        })
-      }
+    canEdit && !movingComponent && !source && !savingAction,
+    zoom,
+    async ({ id, position }) => {
+      const positions = moveDiagramComponents(savedLayout, id, position)
+      await savePlan({
+        ...plan,
+        components: plan.components.map((component) => {
+          const moved = positions.get(component.id)
+          return moved ? { ...component, position: moved } : component
+        }),
+      })
     }
   )
   const savedBoxes = [
     ...savedLayout.componentBoxes.values(),
-    ...savedLayout.networkBoxes.values(),
     ...savedLayout.enclosures.values(),
-    ...networkBoxes.values(),
   ]
   const origin = {
-    x: Math.min(0, ...savedBoxes.map(({ x }) => x)),
-    y: Math.min(0, ...savedBoxes.map(({ y }) => y)),
+    x: Math.min(0, ...savedBoxes.map(({ x }) => x)) - fitInset.x,
+    y: Math.min(0, ...savedBoxes.map(({ y }) => y)) - fitInset.y,
   }
   const toCanvasBox = (box: DiagramBox) => ({
     ...box,
@@ -137,23 +184,16 @@ export function DiagramView({
       toCanvasBox({ ...box, ...movedComponents?.get(id) }),
     ])
   )
-  const networks = new Map(
-    Array.from(networkBoxes, ([id, box]) => [
-      id,
-      toCanvasBox(
-        preview?.kind === "network" && preview.id === id
-          ? { ...box, ...preview.position }
-          : box
-      ),
-    ])
-  )
   const scrollToScope = useEffectEvent(() => {
-    const box = focusedNetworkId
-      ? networks.get(focusedNetworkId)
-      : placedComponentId
-        ? components.get(placedComponentId)
+    const box = placedComponentId
+      ? components.get(placedComponentId)
+      : focusedNetworkId
+        ? components.values().next().value
         : undefined
-    canvasRef.current?.scrollTo(box ? box.x - 24 : 0, box ? box.y - 24 : 0)
+    canvasRef.current?.scrollTo(
+      box ? (box.x - 24) * zoom : 0,
+      box ? (box.y - 24) * zoom : 0
+    )
   })
   useLayoutEffect(() => {
     scrollToScope()
@@ -177,11 +217,7 @@ export function DiagramView({
       ]),
     ])
   )
-  const boxes = [
-    ...components.values(),
-    ...networks.values(),
-    ...hostGroups.values(),
-  ]
+  const boxes = [...components.values(), ...hostGroups.values()]
   const width = Math.max(
     canvasWidth,
     ...boxes.map(({ x, width }) => x + width + 72)
@@ -190,7 +226,36 @@ export function DiagramView({
     defaultHeight,
     ...boxes.map(({ y, height }) => y + height + 72)
   )
-  const canvasSize = boxes.length ? { width, height } : undefined
+  const canvasSize = { width, height, zoom }
+
+  function fitToView() {
+    const frame = canvasRef.current
+    if (!frame || !boxes.length) return
+    const bounds = [...boxes]
+    if (linkLayer.current?.childElementCount)
+      bounds.push(linkLayer.current.getBBox())
+    const left = Math.min(...bounds.map((box) => box.x))
+    const top = Math.min(...bounds.map((box) => box.y))
+    const right = Math.max(...bounds.map((box) => box.x + box.width))
+    const bottom = Math.max(...bounds.map((box) => box.y + box.height))
+    const padding = 16
+    const scale = Math.min(
+      3,
+      Math.max(1, frame.clientWidth - 2 * padding) / (right - left),
+      Math.max(1, frame.clientHeight - 2 * padding) / (bottom - top)
+    )
+    // Curved links and their labels can extend beyond the canvas origin.
+    const x = Math.max(0, fitInset.x - left + padding / scale)
+    const y = Math.max(0, fitInset.y - top + padding / scale)
+    flushSync(() => {
+      setFitInset({ x, y })
+      setZoom(scale)
+    })
+    frame.scrollTo(
+      ((left + right) / 2 + x - fitInset.x) * scale - frame.clientWidth / 2,
+      ((top + bottom) / 2 + y - fitInset.y) * scale - frame.clientHeight / 2
+    )
+  }
 
   const flaggedComponents = new Set(
     plan.addressIssues
@@ -215,7 +280,7 @@ export function DiagramView({
     const box = components.get(component.id)!
     const initial = componentBoxes.get(component.id)!
     const highlighted = component.id === highlightedComponentId
-    const dimmed = searchQuery.trim() && !matchIds.has(component.id)
+    const ports = plan.interfaces.filter((p) => p.componentId === component.id)
     return (
       <Button
         key={component.id}
@@ -230,9 +295,9 @@ export function DiagramView({
         aria-haspopup="dialog"
         aria-current={highlighted || undefined}
         className={cn(
-          "pointer-events-auto absolute z-20 flex-col items-start gap-1 px-4 py-3 text-left whitespace-normal transition-colors",
+          "pointer-events-auto absolute z-20 flex-col items-start gap-1 px-4 py-3 text-left whitespace-normal transition-colors dark:bg-background dark:hover:bg-muted",
           canEdit && movable,
-          dimmed && "opacity-40",
+
           highlighted &&
             "z-30 ring-2 ring-primary ring-offset-2 ring-offset-background"
         )}
@@ -242,17 +307,56 @@ export function DiagramView({
           width: box.width,
           height: box.height,
         }}
+        onContextMenu={(event) => {
+          if (canEdit) {
+            event.preventDefault()
+            openMenu({ component }, event.clientX, event.clientY)
+          }
+        }}
+        onKeyDown={(event) => {
+          if (
+            event.key === "ContextMenu" ||
+            (event.shiftKey && event.key === "F10")
+          ) {
+            event.preventDefault()
+            const rect = event.currentTarget.getBoundingClientRect()
+            openMenu({ component }, rect.left, rect.bottom)
+          }
+        }}
         title={component.name}
         {...bind(
           { id: component.id, kind: "component", position: initial },
           componentMinimum(component),
           () =>
-            onSelectComponent(component.id, () =>
-              setMovingComponentId(component.id)
-            )
+            source && canEdit
+              ? component.id !== source.componentId && setTarget(component.id)
+              : onSelectComponent(component.id, () =>
+                  setMovingComponentId(component.id)
+                )
         )}
       >
         <DiagramComponentLabel component={component} />
+        {ports.map((port) => {
+          const network = plan.networks.find((n) => n.id === port.networkId)
+          return (
+            <span
+              key={port.id}
+              title={[port.name, network?.name, port.ipv4]
+                .filter(Boolean)
+                .join(" · ")}
+              className="block w-full border-l-[3px] pl-1 text-[10px] leading-3"
+              style={{
+                borderColor: network ? networkColor(network.id) : undefined,
+              }}
+            >
+              <span className="block truncate">
+                {network?.name ?? "No network"}
+              </span>
+              <span className="block">{port.ipv4 ?? "Unassigned"}</span>
+            </span>
+          )
+        })}
+
         {flaggedComponents.has(component.id) && (
           <IconAlertTriangle
             role="img"
@@ -267,25 +371,29 @@ export function DiagramView({
   function canvasPosition(event: MouseEvent<HTMLDivElement>) {
     const frame = event.currentTarget.getBoundingClientRect()
     return {
-      x: Math.round(event.clientX - frame.left + origin.x),
-      y: Math.round(event.clientY - frame.top + origin.y),
+      x: Math.round((event.clientX - frame.left) / zoom + origin.x),
+      y: Math.round((event.clientY - frame.top) / zoom + origin.y),
     }
+  }
+
+  function revealPlacement(id: string) {
+    updateFilter({ networkId: null, query: "" })
+    setPlacedComponentId(id)
   }
 
   function drop(event: DragEvent<HTMLDivElement>) {
     if (!canEdit || movingComponent) return
     const type = event.dataTransfer.getData(placementType)
-    if (type !== "network" && type !== "component") return
+    const initialType = Object.entries(builtInSymbols).find(
+      ([key]) => key === type
+    )?.[1]
+    if (!initialType && type !== "component") return
     event.preventDefault()
-    const position = canvasPosition(event)
-    if (type === "component") {
-      onPlaceComponent(position, (id) => {
-        if (!scope.focused) return
-        setFocusedNetworkId(null)
-        setHighlightedResult(undefined)
-        setPlacedComponentId(id)
-      })
-    } else setNetworkSelection({ position })
+    onPlaceComponent(
+      canvasPosition(event),
+      revealPlacement,
+      type === "vm" ? "VM" : initialType
+    )
   }
 
   function moveTo(event: MouseEvent<HTMLDivElement>, component: Component) {
@@ -305,35 +413,11 @@ export function DiagramView({
 
   return (
     <>
-      {plan.networks.length > 0 && (
-        <div className="border-b px-4 py-3">
-          <label className="flex min-w-0 flex-col gap-1 text-xs">
-            Topology network
-            <select
-              className="min-h-11 w-full border border-input bg-background px-3 sm:max-w-xs"
-              value={scope.focused ? (focusedNetworkId ?? "") : ""}
-              onChange={(event) => {
-                setPlacedComponentId(undefined)
-                setFocusedNetworkId(event.target.value || null)
-                setHighlightedResult(undefined)
-                setMovingComponentId(undefined)
-              }}
-            >
-              <option value="">Full topology</option>
-              {plan.networks.map(({ id, name }) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
       <DiagramSearch
         query={searchQuery}
         results={searchResults}
         onQueryChange={(query) => {
-          setSearchQuery(query)
+          updateFilter({ query })
           setHighlightedResult(undefined)
         }}
         onSelectResult={(result) => {
@@ -353,15 +437,56 @@ export function DiagramView({
           </Button>
         )}
       </DiagramSearch>
-      {(canEdit || plan.links.length > 0) && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
-          {canEdit && (
-            <p className="text-xs text-muted-foreground">
-              Drag Add component or Add network onto the canvas to place it.
-            </p>
-          )}
-          {plan.links.length > 0 && <LinkLegend />}
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+        {canEdit && (
+          <Button
+            variant="outline"
+            aria-expanded={library}
+            onClick={() => setLibrary(!library)}
+          >
+            Component library
+          </Button>
+        )}
+        <Button
+          variant="outline"
+          aria-label="Zoom out"
+          disabled={zoom <= 0.25}
+          onClick={() => setZoom(Math.max(0.25, zoom - 0.25))}
+        >
+          −
+        </Button>
+        <Button
+          variant="ghost"
+          aria-label="Reset zoom"
+          onClick={() => setZoom(1)}
+        >
+          {Math.round(zoom * 100)}%
+        </Button>
+        <Button
+          variant="outline"
+          aria-label="Zoom in"
+          disabled={zoom >= 3}
+          onClick={() => setZoom(Math.min(3, zoom + 0.25))}
+        >
+          +
+        </Button>
+        <Button variant="outline" onClick={fitToView} disabled={!boxes.length}>
+          Fit to view
+        </Button>
+        {plan.links.length > 0 && <LinkLegend />}
+      </div>
+      {source && canEdit && (
+        <div className="flex items-center gap-3 border-b p-3">
+          <p role="status">Select the component to connect to {source.name}.</p>
+          <Button variant="outline" onClick={() => setSource(undefined)}>
+            Cancel link
+          </Button>
         </div>
+      )}
+      {actionError && (
+        <p role="alert" className="p-3 text-destructive">
+          {actionError}
+        </p>
       )}
       {movingComponent && (
         <div
@@ -385,127 +510,151 @@ export function DiagramView({
           {error}
         </p>
       )}
-      <div
-        className="diagram-grid relative max-h-[70svh] min-h-[50svh] overflow-auto"
-        role="region"
-        aria-label="Topology canvas"
-        tabIndex={0}
-        ref={canvasRef}
-      >
+      <div className="flex">
+        {library && canEdit && (
+          <ComponentLibrary
+            onChoose={(key) =>
+              onPlaceComponent(
+                {
+                  x:
+                    Math.round((canvasRef.current?.scrollLeft ?? 0) / zoom) +
+                    origin.x +
+                    32,
+                  y:
+                    Math.round((canvasRef.current?.scrollTop ?? 0) / zoom) +
+                    origin.y +
+                    32,
+                },
+                revealPlacement,
+                key === "vm" ? "VM" : builtInSymbols[key]
+              )
+            }
+          />
+        )}
         <div
-          className="relative min-h-[50svh] min-w-full"
-          style={canvasSize}
-          inert={isMoving}
-          onDragOver={(event) => {
+          className="diagram-grid relative max-h-[70svh] min-h-[50svh] min-w-0 flex-1 cursor-grab overflow-auto select-none active:cursor-grabbing"
+          role="region"
+          aria-label="Topology canvas"
+          tabIndex={0}
+          ref={canvasRef}
+          onPointerDown={(event) => {
             if (
-              canEdit &&
-              !movingComponent &&
-              event.dataTransfer.types.includes(placementType)
-            ) {
-              event.preventDefault()
-              event.dataTransfer.dropEffect = "copy"
+              event.pointerType === "touch" ||
+              !event.isPrimary ||
+              event.button !== 0 ||
+              isMoving ||
+              (event.target as Element).closest('button, [role="button"]')
+            )
+              return
+            const frame = event.currentTarget
+            pan.current = {
+              id: event.pointerId,
+              x: frame.scrollLeft + event.clientX,
+              y: frame.scrollTop + event.clientY,
             }
+            frame.setPointerCapture(event.pointerId)
           }}
-          onDrop={drop}
+          onPointerMove={(event) => {
+            if (pan.current?.id === event.pointerId)
+              event.currentTarget.scrollTo(
+                pan.current.x - event.clientX,
+                pan.current.y - event.clientY
+              )
+          }}
+          onLostPointerCapture={(event) => {
+            if (pan.current?.id === event.pointerId) pan.current = null
+          }}
         >
-          {boxes.length === 0 && (
-            <EmptyPlanView
-              icon={IconSchema}
-              title="No components yet"
-              description="Components and links will appear on this diagram."
-            />
-          )}
-          {plan.links.length > 0 && (
-            <DiagramLinks
-              plan={plan}
-              boxes={components}
-              width={width}
-              height={height}
-              onSelectLink={setLinkSelection}
-            />
-          )}
-          {scope.visibleNetworks.map((network) => {
-            const box = networks.get(network.id)!
-            const style = {
-              left: box.x,
-              top: box.y,
-              width: box.width,
-              height: box.height,
-            }
-            const label = (
-              <>
-                <IconNetwork aria-hidden="true" className="size-4 shrink-0" />
-                <span className="min-w-0 truncate">{network.name}</span>
-              </>
-            )
-            const className =
-              "absolute z-20 flex items-center justify-start gap-2 border bg-secondary px-3 text-xs transition-colors"
-            return canEdit ? (
-              <Button
-                key={network.id}
-                variant="outline"
-                title={network.name}
-                aria-label={network.name}
-                aria-haspopup="dialog"
-                className={`${className} ${movable}`}
-                style={style}
-                {...bind(
-                  {
-                    id: network.id,
-                    kind: "network",
-                    position: networkBoxes.get(network.id)!,
-                  },
-                  origin,
-                  () => setNetworkSelection({ network })
-                )}
-              >
-                {label}
-              </Button>
-            ) : (
+          <div
+            className="relative isolate min-h-[50svh] min-w-full"
+            style={canvasSize}
+            inert={isMoving}
+            onDragOver={(event) => {
+              if (
+                canEdit &&
+                !movingComponent &&
+                event.dataTransfer.types.includes(placementType)
+              ) {
+                event.preventDefault()
+                event.dataTransfer.dropEffect = "copy"
+              }
+            }}
+            onDrop={drop}
+          >
+            {boxes.length === 0 && (
+              <EmptyPlanView
+                icon={IconSchema}
+                title={
+                  plan.components.length
+                    ? "No matching components"
+                    : "No components yet"
+                }
+                description="Components and links will appear on this diagram."
+              />
+            )}
+            {Array.from(hostGroups, ([id, bounds]) => (
               <div
-                key={network.id}
-                title={network.name}
-                className={className}
-                style={style}
-              >
-                {label}
-              </div>
-            )
-          })}
-          {topLevel.map((component) => {
-            const bounds = hostGroups.get(component.id)
-            if (!bounds) return renderComponent(component)
-            const members = guests.get(component.id)!
-            return (
-              <div
-                key={component.id}
-                role="group"
-                aria-label={`${component.name} host enclosure`}
-                className="pointer-events-none absolute bg-muted/75 ring-1 ring-muted-foreground/40 ring-inset"
+                key={id}
+                aria-hidden="true"
+                className="pointer-events-none absolute z-0 bg-muted/75 ring-1 ring-muted-foreground/40 ring-inset"
                 style={{
                   left: bounds.x,
                   top: bounds.y,
                   width: bounds.width,
                   height: bounds.height,
                 }}
-              >
-                <p className="px-3 pt-2 text-xs font-medium text-muted-foreground">
-                  Hosted VMs
-                </p>
-                {renderComponent(component, bounds)}
-                {members.map((guest) => renderComponent(guest, bounds))}
-              </div>
-            )
-          })}
+              />
+            ))}
+            {plan.links.length > 0 && (
+              <DiagramLinks
+                layerRef={linkLayer}
+                plan={plan}
+                focusedNetworkId={focusedNetworkId}
+                boxes={components}
+                hostEnclosures={hostGroups}
+                width={width}
+                height={height}
+                onContextLink={
+                  canEdit ? (link, x, y) => openMenu({ link }, x, y) : undefined
+                }
+                onSelectLink={setLinkSelection}
+              />
+            )}
+            {topLevel.map((component) => {
+              const bounds = hostGroups.get(component.id)
+              if (!bounds) return renderComponent(component)
+              const members = guests.get(component.id)!
+              return (
+                <div
+                  key={component.id}
+                  role="group"
+                  aria-label={`${component.name} host enclosure`}
+                  className="pointer-events-none absolute z-20"
+                  style={{
+                    left: bounds.x,
+                    top: bounds.y,
+                    width: bounds.width,
+                    height: bounds.height,
+                  }}
+                >
+                  <p className="px-3 pt-2 text-xs font-medium text-muted-foreground">
+                    Hosted VMs
+                  </p>
+                  {renderComponent(component, bounds)}
+                  {members.map((guest) => renderComponent(guest, bounds))}
+                </div>
+              )
+            })}
+          </div>
+          {movingComponent && (
+            <div
+              aria-hidden="true"
+              className="absolute top-0 left-0 z-40 min-h-[50svh] min-w-full cursor-crosshair"
+              style={canvasSize}
+              onClick={(event) => moveTo(event, movingComponent)}
+            />
+          )}
         </div>
-        {movingComponent && (
-          <div
-            aria-hidden="true"
-            className="absolute top-0 left-0 z-40 min-h-[50svh] min-w-full cursor-crosshair"
-            style={canvasSize}
-            onClick={(event) => moveTo(event, movingComponent)}
-          />
-        )}
       </div>
       {(link || (linkSelection === null && canEdit)) && (
         <LinkInspector
@@ -517,24 +666,117 @@ export function DiagramView({
           onClose={() => setLinkSelection(undefined)}
         />
       )}
-      {networkSelection && canEdit && (
-        <NetworkDialog
-          plan={plan}
-          network={
-            "network" in networkSelection ? networkSelection.network : undefined
-          }
-          position={
-            "position" in networkSelection
-              ? networkSelection.position
-              : undefined
-          }
-          savePlan={savePlan}
-          onCreated={(id) => {
-            if (!scope.focused) return
-            setFocusedNetworkId(id)
-            setHighlightedResult(undefined)
+      {menu && canEdit && (
+        <div
+          className="fixed inset-0 z-50"
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) setMenu(undefined)
           }}
-          onClose={() => setNetworkSelection(undefined)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setMenu(undefined)
+          }}
+        >
+          <div
+            role="group"
+            aria-label={
+              "link" in menu
+                ? "Connection actions"
+                : menu.component.name + " actions"
+            }
+            className="fixed flex max-h-[min(300px,100dvh)] w-60 flex-col gap-1 overflow-auto border bg-background p-2 shadow-md"
+            style={{ left: menu.x, top: menu.y }}
+          >
+            {"link" in menu ? (
+              <>
+                <Button
+                  autoFocus
+                  variant="outline"
+                  onClick={() => {
+                    setLinkSelection(menu.link.id)
+                    setMenu(undefined)
+                  }}
+                >
+                  Edit link
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    const links = confirmLinkRemoval(plan, menu.link)
+                    setMenu(undefined)
+                    if (links) void applyAction({ ...plan, links })
+                  }}
+                >
+                  Remove link
+                </Button>
+              </>
+            ) : (
+              <>
+                {" "}
+                <Button
+                  autoFocus
+                  variant="outline"
+                  onClick={() =>
+                    void applyAction(
+                      duplicateComponent(
+                        plan,
+                        menu.component,
+                        savedLayout.componentBoxes.get(menu.component.id)!
+                      )
+                    )
+                  }
+                >
+                  Duplicate
+                </Button>
+                {plan.interfaces
+                  .filter((p) => p.componentId === menu.component.id)
+                  .map((port) => (
+                    <Button
+                      key={port.id}
+                      variant="outline"
+                      onClick={() => {
+                        setSource(port)
+                        setTarget(undefined)
+                        setMenu(undefined)
+                      }}
+                    >
+                      Link from {port.name}
+                    </Button>
+                  ))}
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Delete " +
+                          menu.component.name +
+                          " and its interfaces and links? Hosted VMs will be kept."
+                      )
+                    )
+                      void applyAction(deleteComponent(plan, menu.component.id))
+                    else setMenu(undefined)
+                  }}
+                >
+                  Delete
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      {source && target && canEdit && (
+        <InterfaceLinkDialog
+          plan={plan}
+          source={source}
+          targetComponentId={target}
+          savePlan={savePlan}
+          onClose={() => {
+            setSource(undefined)
+            setTarget(undefined)
+          }}
+          onSaved={() => {
+            setSource(undefined)
+            setTarget(undefined)
+          }}
         />
       )}
     </>

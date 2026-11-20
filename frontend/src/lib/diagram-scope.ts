@@ -6,11 +6,11 @@ type DiagramLayout = ReturnType<typeof layoutDiagram>
 export function scopedDiagram(
   plan: Plan,
   layout: DiagramLayout,
-  focusedNetworkId: string | null
+  focusedNetworkId: string | null,
+  matches?: Set<string>
 ) {
   const network = plan.networks.find(({ id }) => id === focusedNetworkId)
-  if (!network)
-    return { layout, visibleNetworks: plan.networks, focused: false }
+  if (!network && !matches) return { layout, focused: false }
 
   const directMembers = new Set<string>()
   const networkedComponents = new Set<string>()
@@ -19,11 +19,17 @@ export function scopedDiagram(
     if (networkId === focusedNetworkId) directMembers.add(componentId)
   }
 
+  if (!network)
+    for (const component of plan.components) directMembers.add(component.id)
+  if (matches)
+    for (const id of directMembers) {
+      if (!matches.has(id)) directMembers.delete(id)
+    }
   const visibleIds = new Set(directMembers)
   for (const { id, hostId } of plan.components) {
     if (!hostId) continue
     if (directMembers.has(id)) visibleIds.add(hostId)
-    if (directMembers.has(hostId) && !networkedComponents.has(id))
+    if (!matches && directMembers.has(hostId) && !networkedComponents.has(id))
       visibleIds.add(id)
   }
 
@@ -46,30 +52,14 @@ export function scopedDiagram(
       ]),
     ])
   )
-  const content = [...componentBoxes.values(), ...enclosures.values()]
-  const networkBox = layout.networkBoxes.get(network.id)!
-  // Place an unsaved network label above its members in the focused view.
-  const networkBoxes = new Map([
-    [
-      network.id,
-      !network.position && content.length > 0
-        ? {
-            ...networkBox,
-            x: Math.min(...content.map(({ x }) => x)),
-            y: Math.min(...content.map(({ y }) => y)) - networkBox.height - 22,
-          }
-        : networkBox,
-    ],
-  ])
   return {
     layout: {
       componentBoxes,
-      networkBoxes,
+
       guests,
       topLevel: layout.topLevel.filter(({ id }) => visibleIds.has(id)),
       enclosures,
     },
-    visibleNetworks: [network],
-    focused: true,
+    focused: !!network,
   }
 }

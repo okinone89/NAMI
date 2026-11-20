@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")"
+if [ "${1:-}" = "--dev" ]; then
+  export ASPNETCORE_ENVIRONMENT=Development
+  shift
+else
+  export ASPNETCORE_ENVIRONMENT=Production
+fi
+export DOTNET_ENVIRONMENT="$ASPNETCORE_ENVIRONMENT"
+if [ ! -x frontend/node_modules/.bin/vite ] || [ frontend/package-lock.json -nt frontend/node_modules/.package-lock.json ]; then
+  npm --prefix frontend ci
+fi
+npm --prefix frontend run build -- --outDir ../src/Nami.Api/wwwroot --emptyOutDir
+export ASPNETCORE_URLS="${ASPNETCORE_URLS:-http://127.0.0.1:5080}"
+exec dotnet run --project src/Nami.Api --no-launch-profile -- "$@"

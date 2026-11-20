@@ -3,3 +3,4 @@ obj/
 data/
 *.db
 *.db-*
+src/Nami.Api/wwwroot/

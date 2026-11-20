@@ -8,7 +8,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { linkEndpointLabel, linkMediumLabels } from "@/lib/link-labels"
+import {
+  confirmLinkRemoval,
+  linkEndpointLabel,
+  linkMediumLabels,
+} from "@/lib/link-labels"
 import type {
   LinkEndpoint,
   LinkMedium,
@@ -43,8 +47,6 @@ export function LinkInspector({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setError("")
-    setBusy(true)
     const nextLink: PlanLink = {
       id: link?.id ?? crypto.randomUUID(),
       source,
@@ -58,13 +60,17 @@ export function LinkInspector({
         )
       : [...plan.links, nextLink]
 
+    await persistLinks(links, "Unable to save the link.")
+  }
+
+  async function persistLinks(links: PlanLink[], failureMessage: string) {
+    setError("")
+    setBusy(true)
     try {
       await savePlan({ ...plan, links })
       onClose()
     } catch (failure) {
-      setError(
-        failure instanceof Error ? failure.message : "Unable to save the link."
-      )
+      setError(failure instanceof Error ? failure.message : failureMessage)
       setBusy(false)
     }
   }
@@ -75,6 +81,12 @@ export function LinkInspector({
   const interfaceNames = new Map(
     plan.interfaces.map(({ id, name }) => [id, name])
   )
+
+  function removeLink() {
+    if (!link) return
+    const links = confirmLinkRemoval(plan, link)
+    if (links) void persistLinks(links, "Unable to remove the link.")
+  }
 
   function endpointDetails(endpoint: LinkEndpoint) {
     const port = plan.interfaces.find(({ id }) => id === endpoint.interfaceId)
@@ -152,6 +164,17 @@ export function LinkInspector({
               </p>
             )}
             <div className="flex flex-wrap justify-end gap-2">
+              {link && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={busy}
+                  onClick={removeLink}
+                  className="mr-auto min-h-11"
+                >
+                  Remove link
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"

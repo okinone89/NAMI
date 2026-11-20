@@ -7,10 +7,26 @@ export const builtInSymbols = {
   server: "Server",
   vm: "Virtual machine",
   computer: "Computer",
+  vfd: "VFD",
+  servoDrive: "Servo drive",
+  ioLinkMaster: "IO-Link master",
+  ioLinkHub: "IO-Link I/O hub",
+  ioLinkDevice: "IO-Link device",
+  remoteIo: "Remote I/O station",
+  safetyPlc: "Safety PLC",
+  protocolGateway: "Protocol gateway",
+  visionCamera: "Vision camera",
+  barcodeReader: "Barcode reader",
   generic: "Generic device",
 }
 
 export type BuiltInSymbol = keyof typeof builtInSymbols
+
+export const symbolKeys = Object.keys(builtInSymbols) as BuiltInSymbol[]
+export const componentTypeSuggestions = [
+  ...symbolKeys.map((key) => (key === "vm" ? "VM" : builtInSymbols[key])),
+  "Other",
+]
 
 export const componentShapes = {
   rectangle: "Rectangle",
@@ -27,8 +43,11 @@ export type ComponentAppearance =
 
 export function defaultSymbol(type: string): BuiltInSymbol {
   const normalized = type.trim().toLowerCase()
-  if (normalized === "access point") return "accessPoint"
-  return Object.hasOwn(builtInSymbols, normalized)
-    ? (normalized as BuiltInSymbol)
-    : "generic"
+  return (
+    symbolKeys.find(
+      (key) =>
+        key.toLowerCase() === normalized ||
+        builtInSymbols[key].toLowerCase() === normalized
+    ) ?? "generic"
+  )
 }

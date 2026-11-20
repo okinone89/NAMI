@@ -78,7 +78,7 @@ test("choose a built-in symbol while keeping the component name, interface, and 
     appearance: { kind: "builtIn", symbol: "router" },
   })
   expect(saved.interfaces).toEqual([port])
-  expect(saved.links).toEqual([link])
+  expect(saved.links).toEqual([{ ...link, lineType: "elbow" }])
 })
 
 test("import an icon and reopen its named component as a visitor", async ({
@@ -151,4 +151,47 @@ test("save a labeled shape and reopen its name, label, and settings", async ({
   await expect(node.getByText("Safety zone A", { exact: true })).toBeVisible()
   await node.click()
   await expect(editor.getByText("192.0.2.18")).toBeVisible()
+})
+
+test("create industrial library components and reopen their symbols", async ({
+  page,
+}) => {
+  const path = await openPlan(page)
+  await page.getByRole("button", { name: "Component library" }).click()
+  const library = page.getByRole("complementary", { name: "Component library" })
+  const types = [
+    "VFD",
+    "Servo drive",
+    "IO-Link master",
+    "IO-Link I/O hub",
+    "IO-Link device",
+    "Remote I/O station",
+    "Safety PLC",
+    "Protocol gateway",
+    "Vision camera",
+    "Barcode reader",
+  ]
+  for (const type of types) {
+    await library.getByRole("button", { name: type, exact: true }).click()
+    const editor = page.getByRole("dialog")
+    await expect(editor.getByLabel("Component type")).toHaveValue(type)
+    await editor.getByLabel("Component name").fill(type + " 1")
+    await editor.getByLabel("Representation").selectOption("builtIn")
+    await expect(
+      editor.getByLabel("Built-in symbol").locator("option:checked")
+    ).toHaveText(type)
+    await editor.getByRole("button", { name: "Save component" }).click()
+    await expect(editor).toBeHidden()
+  }
+  await page.reload()
+  const canvas = page.getByRole("region", { name: "Topology canvas" })
+  for (const type of types) {
+    await expect(
+      canvas
+        .getByRole("button", { name: type + " 1", exact: true })
+        .getByRole("img", { name: type + " symbol" })
+    ).toBeVisible()
+  }
+  const saved: Plan = await (await page.request.get(path)).json()
+  expect(saved.interfaces).toEqual([port])
 })

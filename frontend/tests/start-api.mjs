@@ -5,22 +5,12 @@ import { join } from "node:path"
 
 const directory = await mkdtemp(join(tmpdir(), "nami-browser-"))
 const api = spawn(
-  "dotnet",
-  [
-    "run",
-    "--project",
-    "../src/Nami.Api",
-    "--no-launch-profile",
-    "--",
-    "--urls",
-    process.env.NAMI_TEST_API_ORIGIN,
-  ],
+  "../run",
+  ["--dev", "--urls", process.env.NAMI_TEST_API_ORIGIN],
   {
     stdio: "inherit",
     env: {
       ...process.env,
-      ASPNETCORE_ENVIRONMENT: "Development",
-      DOTNET_ENVIRONMENT: "Development",
       Database__Provider: "SQLite",
       Database__File: join(directory, "nami.db"),
     },

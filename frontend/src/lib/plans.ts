@@ -43,6 +43,7 @@ export type PlanInterface = {
 export type LinkEndpoint = { componentId: string; interfaceId: string | null }
 export type LinkMedium = "wired" | "wireless" | "virtual"
 export type PlanLink = {
+  lineType?: "elbow"
   id: string
   source: LinkEndpoint
   target: LinkEndpoint

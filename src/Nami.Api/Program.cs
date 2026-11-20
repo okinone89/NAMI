@@ -22,6 +22,8 @@ internal static class NamiApplication
             Schema.Upgrade(database);
         }
 
+        app.UseDefaultFiles();
+        app.UseStaticFiles();
         app.UseRouting();
         app.UseMiddleware<EditorSessionGuard>();
         app.MapGet("/health", () => Results.Ok(new { status = "ready" }));

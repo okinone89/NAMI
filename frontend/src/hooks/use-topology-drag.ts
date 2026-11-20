@@ -16,6 +16,7 @@ type Drag = {
 
 export function useTopologyDrag(
   enabled: boolean,
+  zoom: number,
   savePosition: (item: DraggedItem) => Promise<void>
 ) {
   const active = useRef<Drag | undefined>(undefined)
@@ -53,8 +54,14 @@ export function useTopologyDrag(
     return {
       ...drag.item,
       position: {
-        x: Math.max(drag.minimum.x, Math.round(drag.item.position.x + x)),
-        y: Math.max(drag.minimum.y, Math.round(drag.item.position.y + y)),
+        x: Math.max(
+          drag.minimum.x,
+          Math.round(drag.item.position.x + x / zoom)
+        ),
+        y: Math.max(
+          drag.minimum.y,
+          Math.round(drag.item.position.y + y / zoom)
+        ),
       },
     }
   }

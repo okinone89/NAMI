@@ -5,7 +5,6 @@ import {
   sharedMachineAddress,
 } from "./fixtures/baseline-plan"
 
-const topologyNetwork = "Topology network"
 const firstNetwork = "Filler A / Machine LAN"
 const lastNetwork = "Filler B / Machine LAN"
 const topologyCanvas = "Topology canvas"
@@ -24,7 +23,10 @@ for (const width of [360, 390, 1024]) {
       await expect(
         page.getByText("10 networks · 200 components · 250 interfaces")
       ).toBeVisible()
-      const picker = page.getByLabel(topologyNetwork)
+      const picker = page.getByRole("button", {
+        name: lastNetwork,
+        exact: true,
+      })
       const canvas = page.getByRole("region", { name: topologyCanvas })
       const farPlc = canvas.getByRole("button", {
         name: "Filler B PLC",
@@ -39,17 +41,29 @@ for (const width of [360, 390, 1024]) {
         ).toBeVisible()
       }
 
-      await expect(picker.locator("option:checked")).toHaveText(
-        width < 640 ? firstNetwork : "Full topology"
-      )
-      await expect(farPlc).toHaveCount(width < 640 ? 0 : 1)
+      await expect(picker).toHaveAttribute("aria-pressed", "false")
+      await expect(farPlc).toHaveCount(1)
       await expectReadableName(enclosure, "Edge server")
       await expectReadableName(enclosure, "Historian VM")
 
-      await picker.selectOption({ label: lastNetwork })
+      await picker.click()
       await expect(farPlc).toBeVisible()
       await expect(enclosure).toHaveCount(0)
-      await picker.selectOption({ label: "Full topology" })
+      const networks = page.getByRole("region", {
+        name: "Networks",
+        exact: true,
+      })
+      await networks.getByRole("button", { name: "Collapse networks" }).click()
+      await expect(networks.getByRole("list")).toBeHidden()
+      await expect(
+        networks.getByText(`Active network filter: ${lastNetwork}`, {
+          exact: true,
+        })
+      ).toBeVisible()
+      await expect(enclosure).toHaveCount(0)
+      await networks.getByRole("button", { name: "Expand networks" }).click()
+      await expect(picker).toHaveAttribute("aria-pressed", "true")
+      await picker.click()
       await expectReadableName(enclosure, "Edge server")
       await expectReadableName(enclosure, "Historian VM")
       await expect(farPlc).toBeVisible()
@@ -166,9 +180,11 @@ for (const width of [360, 390, 1024]) {
       expect(reopened.x - viewport.x + scroll.x).toBeCloseTo(dragged.x)
       expect(reopened.y - viewport.y + scroll.y).toBeCloseTo(dragged.y)
       await activate(
-        canvas.getByRole("button", {
-          name: "Filler A PLC / Ethernet to Filler A HMI / Ethernet (Wired)",
-        })
+        canvas
+          .getByRole("button", {
+            name: "Filler A PLC / Ethernet to Filler A HMI / Ethernet (Wired)",
+          })
+          .locator("circle")
       )
       await expect(
         page.getByRole("dialog", { name: "Link details" })
@@ -184,8 +200,13 @@ for (const width of [360, 390, 1024]) {
       await page.goto(`/?plan=${plan.id}`)
       const activate = (control: Locator) =>
         hasTouch ? control.tap() : control.click()
-      const picker = page.getByLabel(topologyNetwork)
-      await picker.selectOption({ label: firstNetwork })
+      const picker = page.getByRole("button", {
+        name: lastNetwork,
+        exact: true,
+      })
+      await page
+        .getByRole("button", { name: firstNetwork, exact: true })
+        .click()
       const search = page.getByRole("searchbox", { name: "Search plan" })
       const results = page.getByRole("list", { name: "Search results" })
       const farResult = results.getByRole("button", {
@@ -208,14 +229,17 @@ for (const width of [360, 390, 1024]) {
         })
       ).toBeVisible()
       await activate(farResult)
-      await expect(picker.locator("option:checked")).toHaveText(lastNetwork)
+      await expect(picker).toHaveAttribute("aria-pressed", "true")
       await expect(farPlc).toBeInViewport({ ratio: 0.9 })
       await expect(farPlc).toHaveAttribute("aria-current", "true")
 
+      await search.clear()
       await activate(
-        canvas.getByRole("button", {
-          name: "Filler B PLC / Ethernet to Controller 184 / Ethernet (Wireless)",
-        })
+        canvas
+          .getByRole("button", {
+            name: "Filler B PLC / Ethernet to Controller 184 / Ethernet (Wireless)",
+          })
+          .locator("circle")
       )
       const inspector = page.getByRole("dialog", { name: "Link details" })
       await expect(
@@ -274,13 +298,13 @@ for (const width of [360, 390, 1024]) {
       await expect(save).toBeHidden()
       await filter.fill("Filler A HMI")
       await expect(ethernetAddress).toHaveValue("192.168.1.73")
+      await filter.fill("")
 
-      const connections = page.getByRole("table", {
-        name: "Connections",
-        exact: true,
-      })
+      await activate(page.getByRole("button", { name: "Diagram", exact: true }))
       await activate(
-        connections.getByRole("button", { name: /Filler A PLC.*Filler A HMI/ })
+        page
+          .getByRole("button", { name: /Filler A PLC.* to Filler A HMI/ })
+          .locator("circle")
       )
       const inspector = page.getByRole("dialog", { name: "Link details" })
       const target = inspector.getByRole("group", { name: "Target" })
@@ -296,3 +320,42 @@ for (const width of [360, 390, 1024]) {
     })
   })
 }
+
+test("fit all visible diagram items and refit a filtered network", async ({
+  page,
+}) => {
+  const plan = await createBaselinePlan(page.request)
+  await page.goto(`/?plan=${plan.id}`)
+  const canvas = page.getByRole("region", { name: "Topology canvas" })
+  const fit = page.getByRole("button", { name: "Fit to view" })
+  async function verifyFit() {
+    await fit.click()
+    const clipped = await canvas.evaluate((frame) => {
+      const rect = frame.getBoundingClientRect()
+      return Array.from(
+        frame.querySelectorAll('button, [role="button"], [role="group"]')
+      )
+        .filter((item) => {
+          const box = item.getBoundingClientRect()
+          return (
+            box.left < rect.left - 1 ||
+            box.top < rect.top - 1 ||
+            box.right > rect.left + frame.clientWidth + 1 ||
+            box.bottom > rect.top + frame.clientHeight + 1
+          )
+        })
+        .map((item) => item.getAttribute("aria-label"))
+    })
+    expect(clipped).toEqual([])
+  }
+  await verifyFit()
+  const zoom = page.getByRole("button", { name: "Reset zoom" })
+  const allZoom = parseInt(await zoom.innerText())
+  await page.getByRole("button", { name: lastNetwork, exact: true }).click()
+  await verifyFit()
+  expect(parseInt(await zoom.innerText())).toBeGreaterThan(allZoom)
+  await page
+    .getByRole("searchbox", { name: "Search plan" })
+    .fill("no-such-device")
+  await expect(fit).toBeDisabled()
+})

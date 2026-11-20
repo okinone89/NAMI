@@ -130,6 +130,7 @@ test("anonymous visitors can sort, filter and inspect interface rows", async ({
 
   await filter.fill("unknown")
   await expect(tableView.getByText("No matching interfaces.")).toBeVisible()
+  await filter.clear()
   await tableView.getByRole("button", { name: "New PLC", exact: true }).click()
   await expect(
     page.getByRole("dialog", { name: "New PLC", exact: true })
@@ -215,6 +216,8 @@ test("editors save the same interface after sorting and filtering it out", async
     .fill("Adapter 3")
   await vm.getByRole("button", { name: "Save component", exact: true }).click()
   await expect(vm).toBeHidden()
+  await expect(filter).toHaveValue("Controls")
+  await filter.clear()
   await expect(runtime).toHaveCount(3)
   await expect(runtime.filter({ hasText: "Adapter 3" })).toBeVisible()
 })

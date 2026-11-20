@@ -60,6 +60,7 @@ test("download a plan and reopen an imported copy with its diagram and interface
       links: [
         {
           id: "panel-drive",
+          lineType: "elbow",
           source: { componentId: "panel", interfaceId: "panel-lan" },
           target: { componentId: "drive" },
           medium: "wired",
@@ -139,6 +140,10 @@ test("download a plan and reopen an imported copy with its diagram and interface
   await expect(selection).not.toHaveValue(existingId)
   await expect(panel).toHaveAttribute("style", originalPosition!)
   const icon = panel.getByRole("img", { name: "Custom icon" })
+  const copied = await page.request.get(
+    new URL(`/api/plans/${await selection.inputValue()}`, page.url()).href
+  )
+  expect(((await copied.json()) as Plan).links[0].lineType).toBe("elbow")
   await expect(icon).toBeVisible()
   await expect
     .poll(() =>

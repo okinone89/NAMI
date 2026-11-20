@@ -1,6 +1,9 @@
+import { PdfExport } from "@/components/pdf-export"
+import { usePlanFilter } from "@/hooks/use-plan-filter"
 import { useState } from "react"
 import {
   IconCircuitSwitchOpen,
+  IconMoon,
   IconSchema,
   IconTable,
 } from "@tabler/icons-react"
@@ -14,6 +17,7 @@ import { PlanNetworks } from "@/components/plan-networks"
 import { ComponentEditor } from "@/components/component-editor"
 import { DiagramView } from "@/components/diagram-view"
 import { InterfaceTable } from "@/components/interface-table"
+import { applyDarkMode } from "@/lib/theme"
 import { diagramDragSource } from "@/lib/diagram-placement"
 import type { DiagramPosition, SavePlanSnapshot } from "@/lib/plans"
 
@@ -33,15 +37,24 @@ type View = keyof typeof views
 type ComponentSelection = {
   planId: string
   componentId: string | null
+  initialType?: string
   position?: DiagramPosition
   onMove?: () => void
   onPlaced?: (componentId: string) => void
 }
 
 export default function App() {
+  const [dark, setDark] = useState(() =>
+    document.documentElement.classList.contains("dark")
+  )
   const editorSession = useEditorSession()
   const workspace = usePlanWorkspace(editorSession.refresh)
   const { plans, plan, failed, loading } = workspace
+  const { value: filter, update: updateFilter } = usePlanFilter(plan?.id)
+  const networkId = plan?.networks.some((n) => n.id === filter.networkId)
+    ? filter.networkId
+    : null
+  const [renaming, setRenaming] = useState<string>()
   const [view, setView] = useState<View>("Diagram")
   const [creating, setCreating] = useState(false)
   const [selection, setSelection] = useState<ComponentSelection>()
@@ -54,7 +67,10 @@ export default function App() {
 
   function selectComponent(
     componentId: string | null,
-    options?: Pick<ComponentSelection, "position" | "onMove" | "onPlaced">
+    options?: Pick<
+      ComponentSelection,
+      "initialType" | "position" | "onMove" | "onPlaced"
+    >
   ) {
     if (plan) setSelection({ planId: plan.id, componentId, ...options })
   }
@@ -84,7 +100,7 @@ export default function App() {
   const { icon: ViewIcon, heading, component: ActiveView } = views[view]
   return (
     <>
-      <header className="flex items-center gap-3 border-b px-5 py-4 sm:px-10">
+      <header className="flex flex-wrap items-center gap-3 border-b px-3 py-2 sm:px-5">
         <IconCircuitSwitchOpen
           aria-hidden="true"
           className="size-8 bg-primary p-1 text-primary-foreground"
@@ -93,15 +109,16 @@ export default function App() {
         <span className="hidden border-l pl-3 text-xs sm:inline">
           Network workspace
         </span>
-        <EditorSessionControls session={editorSession} />
-      </header>
-      <main className="mx-auto max-w-7xl px-4 py-7 sm:px-10 sm:py-12">
-        <div className="mb-6 flex flex-wrap items-end gap-3">
+        <div
+          role="group"
+          aria-label="Plan commands"
+          className="order-last grid w-full grid-cols-2 gap-1.5 sm:flex sm:flex-wrap lg:order-none lg:w-auto [&>button]:h-11 [&>button]:min-w-24"
+        >
           {!!plans?.length && (
-            <label className="flex min-w-0 flex-col gap-1 text-xs">
-              Open plan
+            <label className="col-span-full min-w-0 text-xs">
+              <span className="sr-only">Open plan</span>
               <select
-                className="min-h-11 max-w-full border border-input bg-background px-3"
+                className="h-11 w-full border border-input bg-background px-3 sm:w-44"
                 value={workspace.planId}
                 onChange={(event) => workspace.selectPlan(event.target.value)}
               >
@@ -113,6 +130,14 @@ export default function App() {
               </select>
             </label>
           )}
+          {plan && !failed && (
+            <PdfExport
+              key={plan.id}
+              plan={plan}
+              view={view}
+              filter={{ ...filter, networkId }}
+            />
+          )}
           {editorSession.canEdit && plans && (
             <Button
               variant="outline"
@@ -120,6 +145,11 @@ export default function App() {
               onClick={() => setCreating(true)}
             >
               New plan
+            </Button>
+          )}
+          {plan && editorSession.canEdit && (
+            <Button variant="outline" onClick={() => setRenaming(plan.id)}>
+              Edit plan
             </Button>
           )}
           {editorSession.canEdit && plans && (
@@ -130,6 +160,25 @@ export default function App() {
             />
           )}
         </div>
+        <Button
+          variant="outline"
+          className="size-11"
+          aria-label="Dark mode"
+          title="Dark mode"
+          aria-pressed={dark}
+          onClick={() => {
+            applyDarkMode(!dark)
+            setDark(!dark)
+          }}
+        >
+          <IconMoon
+            aria-hidden="true"
+            className={dark ? "fill-current" : undefined}
+          />
+        </Button>
+        <EditorSessionControls session={editorSession} />
+      </header>
+      <main className="w-full px-3 py-5 sm:px-5">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-5">
           <div className="min-w-0">
             <h1 className="text-3xl font-medium tracking-tight break-words sm:text-4xl">
@@ -166,7 +215,10 @@ export default function App() {
             plan={plan}
             canEdit={editorSession.canEdit}
             savePlan={workspace.savePlan}
-            diagram={view === "Diagram"}
+            selected={networkId}
+            onToggle={(id) =>
+              updateFilter({ networkId: networkId === id ? null : id })
+            }
           />
         )}
         <section aria-label={view} className="border">
@@ -192,13 +244,15 @@ export default function App() {
               plan={plan}
               canEdit={editorSession.canEdit}
               savePlan={workspace.savePlan}
+              filter={{ ...filter, networkId }}
+              updateFilter={updateFilter}
               refreshPlan={workspace.refreshPlan}
               withEditorAccess={workspace.withEditorAccess}
               onSelectComponent={(componentId, onMove) =>
                 selectComponent(componentId, { onMove })
               }
-              onPlaceComponent={(position, onPlaced) =>
-                selectComponent(null, { position, onPlaced })
+              onPlaceComponent={(position, onPlaced, initialType) =>
+                selectComponent(null, { position, onPlaced, initialType })
               }
             />
           ) : (
@@ -223,10 +277,24 @@ export default function App() {
           key={selectedComponent?.id ?? "add-component"}
           plan={plan}
           component={selectedComponent}
+          initialType={activeSelection?.initialType}
           canEdit={editorSession.canEdit}
           onClose={() => setSelection(undefined)}
           onMove={activeSelection?.onMove}
           savePlan={saveComponent}
+        />
+      )}
+      {plan && renaming === plan.id && editorSession.canEdit && (
+        <PlanNameDialog
+          title="Edit plan"
+          label="Plan name"
+          name={plan.name}
+          action="Save plan"
+          onClose={() => setRenaming(undefined)}
+          onSave={async (name) => {
+            await workspace.savePlan({ ...plan, name })
+            setRenaming(undefined)
+          }}
         />
       )}
       {creating && editorSession.canEdit && (

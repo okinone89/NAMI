@@ -126,23 +126,16 @@ test("choosing a result reveals and highlights its component for anonymous inspe
   const plcB = topology.getByRole("button", { name: "Filler B PLC" })
   const switchB = topology.getByRole("button", { name: "Filler B Switch" })
 
-  await page
-    .getByLabel("Topology network")
-    .selectOption({ label: "Full topology" })
   await expect(plcB).not.toBeInViewport()
   await results.getByRole("button", { name: /Filler B PLC/ }).click()
 
-  await expect(page.getByLabel("Topology network")).toHaveValue("b")
+  await expect(
+    page.getByRole("button", { name: "Filler B / Machine LAN", exact: true })
+  ).toHaveAttribute("aria-pressed", "true")
   await expect(plcB).toBeInViewport({ ratio: 0.9 })
   await expect(plcB).toHaveAttribute("aria-current", "true")
   await expect(plcB).toHaveCSS("opacity", "1")
-  await expect
-    .poll(async () =>
-      Number(
-        await switchB.evaluate((element) => getComputedStyle(element).opacity)
-      )
-    )
-    .toBeLessThan(1)
+  await expect(switchB).toBeHidden()
   await expect(
     topology.getByRole("button", { name: "Filler A PLC" })
   ).toBeHidden()
@@ -158,14 +151,16 @@ test("choosing a result reveals and highlights its component for anonymous inspe
   await inspector.getByRole("button", { name: "Close" }).click()
 
   await results.getByRole("button", { name: /Filler A PLC/ }).click()
-  await expect(page.getByLabel("Topology network")).toHaveValue("a")
+  await expect(
+    page.getByRole("button", { name: "Filler A / Machine LAN", exact: true })
+  ).toHaveAttribute("aria-pressed", "true")
   await expect(
     topology.getByRole("button", { name: "Filler A PLC" })
   ).toHaveAttribute("aria-current", "true")
 
   await page
-    .getByLabel("Topology network")
-    .selectOption({ label: "Full topology" })
+    .getByRole("button", { name: "Filler A / Machine LAN", exact: true })
+    .click()
   await search.clear()
   await expect(results).toBeHidden()
   await expect(switchB).toHaveCSS("opacity", "1")
@@ -212,9 +207,12 @@ test("type search finds a hosted VM outside the focused network at baseline size
   })
   const planId = await createPlan(request, { networks, components, interfaces })
   await page.goto(`/?plan=${planId}`)
-  const picker = page.getByLabel("Topology network")
+  const picker = page.getByRole("button", {
+    name: "Machine LAN 10",
+    exact: true,
+  })
   const canvas = page.getByRole("region", { name: "Topology canvas" })
-  await picker.selectOption({ label: "Machine LAN 1" })
+  await page.getByRole("button", { name: "Machine LAN 1", exact: true }).click()
   await expect(
     canvas.getByRole("button", { name: "Reports runtime" })
   ).toBeHidden()
@@ -226,7 +224,7 @@ test("type search finds a hosted VM outside the focused network at baseline size
   await expect(result).toHaveText(/Reports runtime.*Machine LAN 10/)
   await result.click()
 
-  await expect(picker).toHaveValue("cell-10")
+  await expect(picker).toHaveAttribute("aria-pressed", "true")
   const enclosure = canvas.getByRole("group", {
     name: "Edge server host enclosure",
   })
@@ -238,7 +236,7 @@ test("type search finds a hosted VM outside the focused network at baseline size
   ).toBeVisible()
   await page.getByRole("button", { name: "Clear search" }).click()
   await expect(vm).not.toHaveAttribute("aria-current", "true")
-  await expect(picker).toHaveValue("cell-10")
+  await expect(picker).toHaveAttribute("aria-pressed", "true")
 })
 
 test("moving a component in its focused network keeps the new canvas position", async ({
@@ -251,7 +249,9 @@ test("moving a component in its focused network keeps the new canvas position", 
   })
   expect(session.ok()).toBe(true)
   await page.goto(`/?plan=${planId}`)
-  await page.getByLabel("Topology network").selectOption("a")
+  await page
+    .getByRole("button", { name: "Filler A / Machine LAN", exact: true })
+    .click()
   const canvas = page.getByRole("region", { name: "Topology canvas" })
   const plc = canvas.getByRole("button", { name: "Filler A PLC" })
   await plc.scrollIntoViewIfNeeded()

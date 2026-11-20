@@ -19,7 +19,9 @@ export function ComponentInterfaceFields({
   addressIssues = [],
   onChange,
   onDiscard,
+  allowLink,
 }: {
+  allowLink: boolean
   port: PlanInterface
   networks: PlanNetwork[]
   addressIssues?: AddressIssue[]
@@ -82,6 +84,11 @@ export function ComponentInterfaceFields({
         profiles={port.protocolProfiles}
         onChange={(protocolProfiles) => onChange({ ...port, protocolProfiles })}
       />
+      {allowLink && (
+        <Button type="submit" variant="outline" data-link-port={port.id}>
+          Add link from {port.name || "interface"}
+        </Button>
+      )}
       {onDiscard && (
         <Button
           type="button"

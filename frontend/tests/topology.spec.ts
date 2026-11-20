@@ -200,7 +200,7 @@ test("move a component with its link attached and retain the layout after reload
   expect(reopenedAnchor.x).toBeCloseTo(reopened.x + reopened.width)
 })
 
-test("place new components and networks by dragging their add controls onto the canvas", async ({
+test("place a component and manage networks in their panel", async ({
   page,
 }) => {
   const planId = await openPlan(page, {})
@@ -216,30 +216,27 @@ test("place new components and networks by dragging their add controls onto the 
     canvas.getByRole("button", { name: "Packaging PLC" })
   ).toBeVisible()
 
-  // Scroll before the drag so the drop point does not move the source off the pointer.
-  await canvas.scrollIntoViewIfNeeded()
-  await page.getByRole("button", { name: "Add network" }).dragTo(canvas, {
-    targetPosition: { x: 54, y: 208 },
-  })
+  const panel = page.getByRole("region", { name: "Networks" })
+  await panel.getByRole("button", { name: "Add network" }).click()
   const network = page.getByRole("dialog", { name: "Add network" })
   await network.getByLabel("Network name").fill("Cabinet LAN")
   await network.getByRole("button", { name: "Save network" }).click()
   await expect(
-    canvas.getByRole("button", { name: "Cabinet LAN" })
+    panel.getByRole("button", { name: "Cabinet LAN", exact: true })
   ).toBeVisible()
 
   const response = await page.request.get(`/api/plans/${planId}`)
   const saved: Plan = await response.json()
   expect(saved.components[0].position).toEqual({ x: 24, y: 80 })
-  expect(saved.networks[0].position).toEqual({ x: 54, y: 208 })
+  expect(saved.networks[0].position).toBeNull()
 
   await page.reload()
-  await canvas.getByRole("button", { name: "Cabinet LAN" }).click()
+  await panel.getByRole("button", { name: "Edit network Cabinet LAN" }).click()
   const rename = page.getByRole("dialog", { name: "Edit network" })
   await rename.getByLabel("Network name").fill("Controls LAN")
   await rename.getByRole("button", { name: "Save network" }).click()
   await expect(
-    canvas.getByRole("button", { name: "Controls LAN" })
+    panel.getByRole("button", { name: "Controls LAN", exact: true })
   ).toBeVisible()
 })
 
@@ -252,9 +249,11 @@ test("keeps new items on screen when placed in a focused topology", async ({
     ],
   })
   const canvas = page.getByRole("region", { name: "Topology canvas" })
-  const picker = page.getByLabel("Topology network")
-  const selectedNetwork = picker.locator("option:checked")
-  await picker.selectOption("existing")
+  const existing = page.getByRole("button", {
+    name: "Existing LAN",
+    exact: true,
+  })
+  await existing.click()
   await canvas.evaluate((element) => element.scrollTo(0, 0))
 
   await page.getByRole("button", { name: "Add component" }).dragTo(canvas, {
@@ -269,27 +268,12 @@ test("keeps new items on screen when placed in a focused topology", async ({
     canvas.getByRole("button", { name: "Unassigned PLC" })
   ).toBeInViewport()
 
-  await picker.selectOption("existing")
-  await canvas.evaluate((element) => element.scrollTo(0, 0))
-  await canvas.scrollIntoViewIfNeeded()
-  await page.getByRole("button", { name: "Add network" }).dragTo(canvas, {
-    targetPosition: { x: 40, y: 200 },
-  })
-  const network = page.getByRole("dialog", { name: "Add network" })
-  await network.getByLabel("Network name").fill("New LAN")
-  await network.getByRole("button", { name: "Save network" }).click()
-  await expect(network).toBeHidden()
-  await expect(selectedNetwork).toHaveText("New LAN")
-  await expect(canvas.getByRole("button", { name: "New LAN" })).toBeInViewport()
-
+  await expect(existing).toHaveAttribute("aria-pressed", "false")
   const saved: Plan = await (
     await page.request.get("/api/plans/" + planId)
   ).json()
   expect(saved.components[0].position).toEqual({ x: 80, y: 80 })
   expect(saved.interfaces).toEqual([])
-  expect(
-    saved.networks.find(({ name }) => name === "New LAN")?.position
-  ).toEqual({ x: 40, y: 200 })
 })
 
 test("enclose guests with their host and distinguish selectable virtual, wired, and wireless links", async ({
@@ -473,8 +457,7 @@ test("keeps unassigned guests and their links in the host network", async ({
   })
 
   await page.getByRole("button", { name: "Sign out" }).click()
-  const picker = page.getByLabel("Topology network")
-  await picker.selectOption("plant")
+  await page.getByRole("button", { name: "Plant LAN", exact: true }).click()
   const enclosure = page.getByRole("group", {
     name: "Edge server host enclosure",
   })
@@ -493,7 +476,7 @@ test("keeps unassigned guests and their links in the host network", async ({
   await expect(inspector.getByText("Modbus TCP", { exact: true })).toBeVisible()
   await inspector.getByRole("button", { name: "Close" }).click()
 
-  await picker.selectOption("control")
+  await page.getByRole("button", { name: "Control LAN", exact: true }).click()
   await expect(
     enclosure.getByRole("button", { name: "Control VM", exact: true })
   ).toBeVisible()
@@ -501,4 +484,204 @@ test("keeps unassigned guests and their links in the host network", async ({
     enclosure.getByRole("button", { name: "Unassigned VM", exact: true })
   ).toHaveCount(0)
   await expect(virtualLink).toHaveCount(0)
+})
+
+test("rename, duplicate and connect from the canvas with confirmed network changes", async ({
+  page,
+}) => {
+  const planId = await openPlan(page, {
+    networks: ["Controls", "Safety"].map((name) => ({
+      id: name,
+      name,
+      position: null,
+      subnet: null,
+    })),
+    components: ["PLC", "Switch"].map((name, i) => ({
+      id: name,
+      name,
+      type: name,
+      position: { x: 30 + i * 240, y: 40 },
+      hostId: null,
+    })),
+    interfaces: [
+      {
+        id: "eth",
+        componentId: "PLC",
+        name: "Ethernet",
+        networkId: "Controls",
+        ipv4: "10.0.0.1",
+        protocolProfiles: { profinet: { roles: ["device"] } },
+      },
+      {
+        id: "port",
+        componentId: "Switch",
+        name: "P1",
+        networkId: "Safety",
+        ipv4: null,
+      },
+    ],
+  })
+  const saved = async (): Promise<Plan> =>
+    (await page.request.get("/api/plans/" + planId)).json()
+  const button = (name: string) =>
+    page.getByRole("button", { name, exact: true })
+  await button("Edit plan").click()
+  await page.getByLabel("Plan name").fill("Packaging cell")
+  await button("Save plan").click()
+  await expect(
+    page.getByRole("heading", { name: "Packaging cell" })
+  ).toBeVisible()
+  const canvas = page.getByRole("region", { name: "Topology canvas" })
+  const plc = canvas.getByRole("button", { name: "PLC", exact: true })
+  const originalWidth = (await plc.boundingBox())!.width
+  await button("Zoom in").click()
+  expect((await plc.boundingBox())!.width).toBeCloseTo(originalWidth * 1.25)
+  await button("Reset zoom").click()
+  await plc.click({ button: "right" })
+  await button("Duplicate").click()
+  const copy = canvas.getByRole("button", { name: "PLC copy", exact: true })
+  await expect(copy).toBeVisible()
+  const snapshot = await saved()
+  const copyPort = snapshot.interfaces.find(
+    (p) =>
+      p.componentId ===
+      snapshot.components.find((c) => c.name === "PLC copy")?.id
+  )
+  expect(copyPort).toMatchObject({
+    networkId: "Controls",
+    ipv4: null,
+    protocolProfiles: snapshot.interfaces[0].protocolProfiles,
+  })
+  await copy.click({ button: "right" })
+  page.once("dialog", (dialog) => dialog.accept())
+  await button("Delete").click()
+  await expect(copy).toBeHidden()
+  async function beginLink() {
+    await plc.click({ button: "right" })
+    await button("Link from Ethernet").click()
+    await canvas.getByRole("button", { name: "Switch", exact: true }).click()
+  }
+  await beginLink()
+  await expect(
+    page.getByText("Move Switch / P1 from Safety to Controls?")
+  ).toBeVisible()
+  await button("Cancel").click()
+  expect((await saved()).interfaces[1].networkId).toBe("Safety")
+  await beginLink()
+  await button("Accept change and link").click()
+  await expect(canvas.locator("svg text")).toHaveText("Controls")
+  expect((await saved()).interfaces[1].networkId).toBe("Controls")
+  await button("Controls").click()
+  await page.getByRole("searchbox", { name: "Search plan" }).fill("PROFINET")
+  await button("Table").click()
+  await expect(page.getByLabel("Filter interfaces")).toHaveValue("PROFINET")
+  await expect(
+    page
+      .getByRole("table", { name: "Interfaces", exact: true })
+      .getByRole("cell", { name: "PROFINET", exact: true })
+  ).toBeVisible()
+  await page.reload()
+  await expect(button("Controls")).toHaveAttribute("aria-pressed", "true")
+  await expect(
+    page.getByRole("searchbox", { name: "Search plan" })
+  ).toHaveValue("PROFINET")
+  await expect(plc).toBeVisible()
+  await expect(
+    canvas.getByRole("button", { name: "Switch", exact: true })
+  ).toBeHidden()
+})
+
+test("create from the library at zoom and connect an edited interface using a new network", async ({
+  page,
+}) => {
+  const id = await openPlan(page, {
+    components: [
+      {
+        id: "target",
+        name: "Cabinet switch",
+        type: "Switch",
+        position: { x: 32, y: 40 },
+        hostId: null,
+      },
+    ],
+    interfaces: [
+      {
+        id: "p1",
+        componentId: "target",
+        name: "P1",
+        networkId: null,
+        ipv4: null,
+      },
+    ],
+  })
+  const button = (name: string) =>
+    page.getByRole("button", { name, exact: true })
+  await button("Component library").click()
+  const canvas = page.getByRole("region", { name: "Topology canvas" })
+  const library = page.getByRole("complementary", { name: "Component library" })
+  const search = library.getByRole("searchbox", {
+    name: "Search component types",
+  })
+  const fieldCategory = library.getByRole("button", {
+    name: "Field I/O",
+    exact: true,
+  })
+  const master = library.getByRole("button", {
+    name: "IO-Link master",
+    exact: true,
+  })
+  await fieldCategory.click()
+  await expect(master).toBeHidden()
+  await page.reload()
+  await button("Component library").click()
+  await expect(fieldCategory).toHaveAttribute("aria-expanded", "false")
+  await search.fill("iolink")
+  await expect(master).toBeVisible()
+  await search.fill("")
+  await expect(master).toBeHidden()
+  await fieldCategory.click()
+  await expect(master).toBeVisible()
+  await page.reload()
+  await button("Component library").click()
+  await expect(fieldCategory).toHaveAttribute("aria-expanded", "true")
+  await button("Zoom out").click()
+  await search.fill("iolink")
+  await expect(library.getByRole("button")).toHaveCount(3)
+  await search.fill("unlisted device")
+  await expect(library.getByRole("status")).toHaveText(
+    "No matching component types."
+  )
+  await search.fill("controllers plc")
+  await expect(library.getByRole("button")).toHaveCount(2)
+  await library
+    .getByRole("region", { name: "Controllers & HMI" })
+    .getByRole("button", { name: "PLC", exact: true })
+    .dragTo(canvas, { targetPosition: { x: 90, y: 150 } })
+  const editor = page.getByRole("dialog", { name: "Add component" })
+  await expect(editor.getByLabel("Component type")).toHaveValue("PLC")
+  await editor.getByLabel("Component name").fill("Mixer")
+  await button("Add interface").click()
+  await editor.getByLabel("Interface name").fill("Ethernet")
+  await button("Add link from Ethernet").click()
+  const link = page.getByRole("dialog", { name: "Connect interface" })
+  await link
+    .getByRole("combobox", { name: "Network", exact: true })
+    .selectOption({ label: "Create network…" })
+  await expect(link.getByLabel("Line type")).toHaveCount(0)
+  await link.getByLabel("New network name").fill("Mixer LAN")
+  await link.getByLabel("Target component").selectOption("target")
+  await button("Create link").click()
+  await expect(link).toBeHidden()
+  const plan: Plan = await (await page.request.get("/api/plans/" + id)).json()
+  expect(plan.components.find((c) => c.name === "Mixer")?.position).toEqual({
+    x: 120,
+    y: 200,
+  })
+  expect(plan.networks.map((n) => n.name)).toEqual(["Mixer LAN"])
+  expect(plan.interfaces.map((p) => p.networkId)).toEqual([
+    plan.networks[0].id,
+    plan.networks[0].id,
+  ])
+  expect(plan.links).toHaveLength(1)
+  expect(plan.links[0].lineType).toBe("elbow")
 })

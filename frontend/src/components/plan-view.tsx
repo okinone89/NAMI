@@ -1,7 +1,11 @@
 import type { ComponentType } from "react"
 import type { Plan, SavePlanSnapshot, WithEditorAccess } from "@/lib/plans"
 
+import type { PlanFilter } from "@/hooks/use-plan-filter"
+
 export type PlanViewProps = {
+  filter: PlanFilter
+  updateFilter: (changes: Partial<PlanFilter>) => void
   plan: Plan
   canEdit: boolean
   onSelectComponent: (componentId: string, onMove?: () => void) => void

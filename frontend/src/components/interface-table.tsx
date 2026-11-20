@@ -16,18 +16,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog } from "@/components/ui/dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
-import { ConnectionList } from "@/components/connection-list"
 import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
 import type { AddressConflictApproval } from "@/lib/address-issues"
 import type { PlanInterface } from "@/lib/plans"
 import { cn } from "@/lib/utils"
 
-const columns = [
-  { key: "component", label: "Component" },
-  { key: "interface", label: "Interface" },
-  { key: "network", label: "Network" },
-  { key: "ipv4", label: "IPv4 address" },
-] as const
+import { columns, interfaceRows } from "@/lib/interface-rows"
 
 type Sort = {
   key: (typeof columns)[number]["key"]
@@ -52,9 +46,11 @@ export function InterfaceTable({
   savePlan,
   refreshPlan,
   withEditorAccess,
+  filter: { query, networkId },
+  updateFilter,
 }: PlanViewProps) {
   const id = useId()
-  const [query, setQuery] = useState("")
+
   const [sort, setSort] = useState<Sort>()
   const [draft, setDraft] = useState<InterfaceDraft>()
   const [saving, setSaving] = useState(false)
@@ -87,36 +83,10 @@ export function InterfaceTable({
     canEdit && draft
       ? plan.interfaces.find((port) => port.id === draft.interfaceId)
       : undefined
-  const components = new Map(
-    plan.components.map((component) => [component.id, component])
-  )
-  const networks = new Map(
-    plan.networks.map((network) => [network.id, network.name])
-  )
-  const withInterfaces = new Set(
-    plan.interfaces.map((port) => port.componentId)
-  )
-  const withoutInterfaces = plan.components.filter(
-    (component) => !withInterfaces.has(component.id)
-  )
-  const filter = query.trim().toLocaleLowerCase()
-  const rows = plan.interfaces
-    .map((port) => {
-      const component = components.get(port.componentId)
-      return {
-        port,
-        component: component?.name ?? "",
-        type: component?.type ?? "",
-        interface: port.name,
-        network: port.networkId ? (networks.get(port.networkId) ?? "") : "",
-        ipv4: port.ipv4 ?? "",
-      }
-    })
-    .filter((row) =>
-      [row.component, row.type, row.interface, row.network, row.ipv4].some(
-        (value) => value.toLocaleLowerCase().includes(filter)
-      )
-    )
+  const { components, rows, withoutInterfaces } = interfaceRows(plan, {
+    query,
+    networkId,
+  })
 
   if (sort) {
     const direction = sort.direction === "ascending" ? 1 : -1
@@ -189,85 +159,83 @@ export function InterfaceTable({
           />
         )}
       </InventoryTools>
-      {plan.interfaces.length ? (
-        <>
-          <div
-            className={cn(
-              "flex flex-wrap items-end gap-3 border-b bg-background p-4",
-              draftPort && "sticky top-0 z-10"
-            )}
-          >
-            <Field className="max-w-sm">
-              <FieldLabel htmlFor={`${id}-filter`}>
-                Filter interfaces
-              </FieldLabel>
-              <Input
-                id={`${id}-filter`}
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="min-h-11"
-              />
-            </Field>
-            {canEdit && selectedPorts.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs">{selectedPorts.length} selected</span>
-                <Button
-                  variant="outline"
-                  className="min-h-11"
-                  disabled={Boolean(draftPort)}
-                  onClick={() =>
-                    setBulkSelection(selectedPorts.map(({ id }) => id))
-                  }
-                >
-                  Edit selected interfaces
-                </Button>
-              </div>
-            )}
-            {canEdit && allocationCandidates.size > 0 && (
+      <>
+        <div
+          className={cn(
+            "flex flex-wrap items-end gap-3 border-b bg-background p-4",
+            draftPort && "sticky top-0 z-10"
+          )}
+        >
+          <Field className="max-w-sm">
+            <FieldLabel htmlFor={`${id}-filter`}>Filter interfaces</FieldLabel>
+            <Input
+              id={`${id}-filter`}
+              type="search"
+              value={query}
+              onChange={(event) => updateFilter({ query: event.target.value })}
+              className="min-h-11"
+            />
+          </Field>
+          {canEdit && selectedPorts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs">{selectedPorts.length} selected</span>
               <Button
                 variant="outline"
                 className="min-h-11"
                 disabled={Boolean(draftPort)}
-                onClick={() => setAllocation({})}
+                onClick={() =>
+                  setBulkSelection(selectedPorts.map(({ id }) => id))
+                }
               >
-                Auto-assign IPv4
+                Edit selected interfaces
               </Button>
-            )}
-            {draftPort && (
-              <form
-                id={`${id}-save`}
-                onSubmit={submit}
-                className="flex max-w-full flex-wrap items-center gap-2"
+            </div>
+          )}
+          {canEdit && allocationCandidates.size > 0 && (
+            <Button
+              variant="outline"
+              className="min-h-11"
+              disabled={Boolean(draftPort)}
+              onClick={() => setAllocation({})}
+            >
+              Auto-assign IPv4
+            </Button>
+          )}
+          {draftPort && (
+            <form
+              id={`${id}-save`}
+              onSubmit={submit}
+              className="flex max-w-full flex-wrap items-center gap-2"
+            >
+              <span role="status" className="text-xs break-words">
+                Editing {components.get(draftPort.componentId)?.name} /{" "}
+                {draftPort.name}
+              </span>
+              <Button type="submit" disabled={saving} className="min-h-11">
+                {saving ? "Saving…" : "Save interface"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving}
+                className="min-h-11"
+                onClick={() => {
+                  setDraft(undefined)
+                  setFailure(undefined)
+                }}
               >
-                <span role="status" className="text-xs break-words">
-                  Editing {components.get(draftPort.componentId)?.name} /{" "}
-                  {draftPort.name}
-                </span>
-                <Button type="submit" disabled={saving} className="min-h-11">
-                  {saving ? "Saving…" : "Save interface"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={saving}
-                  className="min-h-11"
-                  onClick={() => {
-                    setDraft(undefined)
-                    setFailure(undefined)
-                  }}
-                >
-                  Discard changes
-                </Button>
-                <AddressSaveFeedback
-                  failure={failure}
-                  fallback="Unable to save the interface. Try again."
-                  disabled={saving}
-                  onKeep={(approvals) => void saveInterface(approvals)}
-                />
-              </form>
-            )}
-          </div>
+                Discard changes
+              </Button>
+              <AddressSaveFeedback
+                failure={failure}
+                fallback="Unable to save the interface. Try again."
+                disabled={saving}
+                onKeep={(approvals) => void saveInterface(approvals)}
+              />
+            </form>
+          )}
+        </div>
+        {plan.interfaces.length > 0 && (
           <div className="overflow-x-auto">
             <table
               aria-label="Interfaces"
@@ -322,126 +290,130 @@ export function InterfaceTable({
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ port, component, type, network, ipv4 }) => {
-                  const addressing =
-                    draftPort?.id === port.id
-                      ? { ...port, ...draft?.changes }
-                      : port
-                  const disabled =
-                    saving ||
-                    (draftPort !== undefined && draftPort.id !== port.id)
-                  const interfaceLabel = `${component} / ${port.name}`
-                  return (
-                    <tr key={port.id} className="border-b">
-                      {canEdit && (
-                        <td className="w-11 pl-2">
-                          <label className="grid size-10 cursor-pointer place-items-center">
-                            <input
-                              type="checkbox"
-                              className="size-4 accent-primary"
-                              aria-label={`Select ${interfaceLabel}`}
-                              checked={selected.has(port.id)}
-                              onChange={(event) => {
-                                const checked = event.target.checked
-                                setSelected((previous) => {
-                                  const next = new Set(previous)
-                                  if (checked) next.add(port.id)
-                                  else next.delete(port.id)
-                                  return next
-                                })
-                              }}
-                            />
-                          </label>
-                        </td>
-                      )}
-                      <td className="px-2 sm:px-4">
-                        <Button
-                          variant="link"
-                          className="min-h-11 px-0"
-                          onClick={() => onSelectComponent(port.componentId)}
-                        >
-                          {component}
-                        </Button>
-                        <span className="-mt-2 block pb-2 text-muted-foreground">
-                          {type}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2 sm:px-4">{port.name}</td>
-                      <td className="px-2 py-2 sm:px-4">
-                        {canEdit ? (
-                          <select
-                            aria-label={`Network for ${interfaceLabel}`}
-                            value={addressing.networkId ?? ""}
-                            disabled={disabled}
-                            onChange={(event) =>
-                              editInterface(port.id, {
-                                networkId: event.target.value || null,
-                              })
-                            }
-                            className="min-h-11 w-full min-w-28 border border-input bg-background px-2 disabled:opacity-50"
-                          >
-                            <option value="">No network</option>
-                            {plan.networks.map((candidate) => (
-                              <option key={candidate.id} value={candidate.id}>
-                                {candidate.name}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          network || "—"
+                {rows.map(
+                  ({ port, component, type, network, ipv4, protocol }) => {
+                    const addressing =
+                      draftPort?.id === port.id
+                        ? { ...port, ...draft?.changes }
+                        : port
+                    const disabled =
+                      saving ||
+                      (draftPort !== undefined && draftPort.id !== port.id)
+                    const interfaceLabel = `${component} / ${port.name}`
+                    return (
+                      <tr key={port.id} className="border-b">
+                        {canEdit && (
+                          <td className="w-11 pl-2">
+                            <label className="grid size-10 cursor-pointer place-items-center">
+                              <input
+                                type="checkbox"
+                                className="size-4 accent-primary"
+                                aria-label={`Select ${interfaceLabel}`}
+                                checked={selected.has(port.id)}
+                                onChange={(event) => {
+                                  const checked = event.target.checked
+                                  setSelected((previous) => {
+                                    const next = new Set(previous)
+                                    if (checked) next.add(port.id)
+                                    else next.delete(port.id)
+                                    return next
+                                  })
+                                }}
+                              />
+                            </label>
+                          </td>
                         )}
-                      </td>
-                      <td className="px-2 py-2 sm:px-4">
-                        {canEdit ? (
-                          <Input
-                            aria-label={`IPv4 address for ${interfaceLabel}`}
-                            value={addressing.ipv4 ?? ""}
-                            form={`${id}-save`}
-                            disabled={disabled}
-                            spellCheck={false}
-                            autoComplete="off"
-                            onChange={(event) =>
-                              editInterface(port.id, {
-                                ipv4: event.target.value,
-                              })
-                            }
-                            className="min-h-11 min-w-32"
-                          />
-                        ) : (
-                          ipv4 || "—"
-                        )}
-                        {flaggedPorts.has(port.id) && (
-                          <span className="mt-1 block font-medium text-destructive">
-                            IPv4 address conflict
-                          </span>
-                        )}
-                        {canEdit && allocationCandidates.has(port.id) && (
+                        <td className="px-2 sm:px-4">
                           <Button
-                            variant="ghost"
-                            className="min-h-11 px-1"
-                            disabled={Boolean(draftPort)}
-                            aria-label={`Suggest IPv4 address for ${interfaceLabel}`}
-                            onClick={() =>
-                              setAllocation({ interfaceId: port.id })
-                            }
+                            variant="link"
+                            className="min-h-11 px-0"
+                            onClick={() => onSelectComponent(port.componentId)}
                           >
-                            Suggest IPv4
+                            {component}
                           </Button>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
+                          <span className="-mt-2 block pb-2 text-muted-foreground">
+                            {type}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 sm:px-4">{port.name}</td>
+                        <td className="px-2 py-2 sm:px-4">
+                          {canEdit ? (
+                            <select
+                              aria-label={`Network for ${interfaceLabel}`}
+                              value={addressing.networkId ?? ""}
+                              disabled={disabled}
+                              onChange={(event) =>
+                                editInterface(port.id, {
+                                  networkId: event.target.value || null,
+                                })
+                              }
+                              className="min-h-11 w-full min-w-28 border border-input bg-background px-2 disabled:opacity-50"
+                            >
+                              <option value="">No network</option>
+                              {plan.networks.map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>
+                                  {candidate.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            network || "—"
+                          )}
+                        </td>
+                        <td className="px-2 py-2 sm:px-4">
+                          {canEdit ? (
+                            <Input
+                              aria-label={`IPv4 address for ${interfaceLabel}`}
+                              value={addressing.ipv4 ?? ""}
+                              form={`${id}-save`}
+                              disabled={disabled}
+                              spellCheck={false}
+                              autoComplete="off"
+                              onChange={(event) =>
+                                editInterface(port.id, {
+                                  ipv4: event.target.value,
+                                })
+                              }
+                              className="min-h-11 min-w-32"
+                            />
+                          ) : (
+                            ipv4 || "—"
+                          )}
+                          {flaggedPorts.has(port.id) && (
+                            <span className="mt-1 block font-medium text-destructive">
+                              IPv4 address conflict
+                            </span>
+                          )}
+                          {canEdit && allocationCandidates.has(port.id) && (
+                            <Button
+                              variant="ghost"
+                              className="min-h-11 px-1"
+                              disabled={Boolean(draftPort)}
+                              aria-label={`Suggest IPv4 address for ${interfaceLabel}`}
+                              onClick={() =>
+                                setAllocation({ interfaceId: port.id })
+                              }
+                            >
+                              Suggest IPv4
+                            </Button>
+                          )}
+                        </td>
+                        <td className="px-4 py-2">{protocol || "—"}</td>
+                      </tr>
+                    )
+                  }
+                )}
               </tbody>
             </table>
           </div>
-          {!rows.length && (
-            <p role="status" className="p-4 text-sm">
-              No matching interfaces.
-            </p>
-          )}
-        </>
-      ) : (
+        )}
+        {plan.interfaces.length > 0 && !rows.length && (
+          <p role="status" className="p-4 text-sm">
+            No matching interfaces.
+          </p>
+        )}
+      </>
+      {plan.interfaces.length === 0 && (
         <EmptyPlanView
           icon={IconTable}
           title="No interfaces yet"
@@ -469,7 +441,6 @@ export function InterfaceTable({
           </ul>
         </section>
       )}
-      <ConnectionList plan={plan} canEdit={canEdit} savePlan={savePlan} />
       {canEdit && bulkSelection && (
         <Dialog
           open

@@ -33,3 +33,10 @@ export type InterfaceProtocolProfiles = {
     downstreamDevices?: ModbusDownstreamDevice[]
   }
 }
+
+export function profileSummary(profiles?: InterfaceProtocolProfiles) {
+  return (Object.keys(profileNames) as (keyof typeof profileNames)[])
+    .filter((profile) => profiles?.[profile])
+    .map((profile) => profileNames[profile])
+    .join(", ")
+}

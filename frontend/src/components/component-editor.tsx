@@ -1,4 +1,6 @@
+import { componentTypeSuggestions } from "@/lib/component-appearance"
 import { useId, useState, type FormEvent } from "react"
+import { InterfaceLinkDialog } from "./interface-link-dialog"
 import { ComponentAppearanceFields } from "@/components/component-appearance-fields"
 import { ComponentInterfaceFields } from "@/components/component-interface-fields"
 import {
@@ -25,6 +27,7 @@ import type {
 
 type Props = {
   plan: Plan
+  initialType?: string
   component?: Component
   canEdit: boolean
   onClose: () => void
@@ -35,6 +38,7 @@ type Props = {
 export function ComponentEditor({
   plan,
   component,
+  initialType,
   canEdit,
   onClose,
   onMove,
@@ -45,7 +49,7 @@ export function ComponentEditor({
     () =>
       component ?? {
         id: crypto.randomUUID(),
-        type: "",
+        type: initialType ?? "",
         name: "",
         position: null,
         hostId: null,
@@ -54,6 +58,10 @@ export function ComponentEditor({
   const savedPorts = plan.interfaces.filter(
     (port) => port.componentId === draft.id
   )
+  const [linkDraft, setLinkDraft] = useState<{
+    plan: Plan
+    source: PlanInterface
+  }>()
   const [ports, setPorts] = useState(savedPorts)
   const [busy, setBusy] = useState(false)
   const [readingIcon, setReadingIcon] = useState(false)
@@ -77,10 +85,17 @@ export function ComponentEditor({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    void saveComponent()
+    const button = (event.nativeEvent as SubmitEvent).submitter
+    void saveComponent(
+      undefined,
+      button?.getAttribute("data-link-port") ?? undefined
+    )
   }
 
-  async function saveComponent(approvals?: AddressConflictApproval[]) {
+  async function saveComponent(
+    approvals?: AddressConflictApproval[],
+    linkPortId?: string
+  ) {
     if (busy || readingIcon) return
     if (draft.appearance?.kind === "custom" && !draft.appearance.imageData) {
       setFailure(new Error("Choose a custom icon before saving."))
@@ -130,6 +145,11 @@ export function ComponentEditor({
       ? plan.components.map((item) => (item.id === updated.id ? updated : item))
       : [...plan.components, updated]
 
+    const source = portsById.get(linkPortId ?? "")
+    if (source) {
+      setLinkDraft({ plan: { ...plan, components, interfaces }, source })
+      return
+    }
     setBusy(true)
     try {
       await savePlan({ ...plan, components, interfaces }, approvals)
@@ -139,6 +159,16 @@ export function ComponentEditor({
       setBusy(false)
     }
   }
+
+  if (linkDraft && canEdit)
+    return (
+      <InterfaceLinkDialog
+        {...linkDraft}
+        savePlan={savePlan}
+        onClose={() => setLinkDraft(undefined)}
+        onSaved={onClose}
+      />
+    )
 
   return (
     <Dialog
@@ -207,16 +237,7 @@ export function ComponentEditor({
                     className="min-h-11"
                   />
                   <datalist id={`${formId}-types`}>
-                    {[
-                      "Server",
-                      "VM",
-                      "Switch",
-                      "PLC",
-                      "HMI",
-                      "Router",
-                      "Access point",
-                      "Other",
-                    ].map((type) => (
+                    {componentTypeSuggestions.map((type) => (
                       <option key={type} value={type} />
                     ))}
                   </datalist>
@@ -275,6 +296,7 @@ export function ComponentEditor({
               {ports.map((port) => (
                 <ComponentInterfaceFields
                   key={port.id}
+                  allowLink={plan.components.some((c) => c.id !== draft.id)}
                   port={port}
                   networks={plan.networks}
                   addressIssues={plan.addressIssues?.filter((issue) =>

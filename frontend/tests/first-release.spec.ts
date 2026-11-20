@@ -40,7 +40,9 @@ test("browse isolated PLCs and keep, reopen, and resolve a baseline address conf
   await results
     .getByRole("button", { name: /Filler B PLC.*Filler B \/ Machine LAN/ })
     .click()
-  await expect(page.getByLabel("Topology network")).toHaveValue("cell-9")
+  await expect(
+    page.getByRole("button", { name: "Filler B / Machine LAN", exact: true })
+  ).toHaveAttribute("aria-pressed", "true")
   await canvas
     .getByRole("button", { name: "Filler B PLC", exact: true })
     .click()
@@ -60,6 +62,9 @@ test("browse isolated PLCs and keep, reopen, and resolve a baseline address conf
 
   const tableButton = page.getByRole("button", { name: "Table", exact: true })
   await tableButton.click()
+  await page
+    .getByRole("button", { name: "Filler B / Machine LAN", exact: true })
+    .click()
   const table = page.getByRole("table", { name: "Interfaces" })
   const address = table.getByRole("textbox", {
     name: "IPv4 address for Filler A HMI / Ethernet",
@@ -85,8 +90,8 @@ test("browse isolated PLCs and keep, reopen, and resolve a baseline address conf
   await page.reload()
   await expect(heading).toBeVisible()
   await page
-    .getByLabel("Topology network")
-    .selectOption({ label: "Filler A / Machine LAN" })
+    .getByRole("button", { name: "Filler A / Machine LAN", exact: true })
+    .click()
   const diagramFlags = canvas.getByRole("img", {
     name: "IPv4 address conflict",
   })

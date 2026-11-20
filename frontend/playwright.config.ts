@@ -8,10 +8,10 @@ const apiOrigin = `http://127.0.0.1:${process.env.NAMI_TEST_API_PORT ?? "5081"}`
 const apiServer = {
   command: "node tests/start-api.mjs",
   env: {
-    NAMI_TEST_API_ORIGIN: apiOrigin,
+    NAMI_TEST_API_ORIGIN: webOrigin,
     Editor__Passphrase: editorPassphrase,
   },
-  url: `${apiOrigin}/health`,
+  url: `${webOrigin}/health`,
   timeout: 120_000,
   gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },
 } as const
@@ -26,12 +26,14 @@ export default defineConfig({
       use: { viewport: { width: 390, height: 844 }, hasTouch: true },
     },
   ],
-  webServer: [
-    ...(process.env.NAMI_TEST_USE_EXTERNAL_API === "1" ? [] : [apiServer]),
-    {
-      command: `npm run dev -- --host 127.0.0.1 --port ${Number(webPort)} --strictPort`,
-      env: { NAMI_API_ORIGIN: apiOrigin },
-      url: webOrigin,
-    },
-  ],
+  webServer:
+    process.env.NAMI_TEST_USE_EXTERNAL_API === "1"
+      ? [
+          {
+            command: `npm run dev -- --host 127.0.0.1 --port ${Number(webPort)} --strictPort`,
+            env: { NAMI_API_ORIGIN: apiOrigin },
+            url: webOrigin,
+          },
+        ]
+      : [apiServer],
 })

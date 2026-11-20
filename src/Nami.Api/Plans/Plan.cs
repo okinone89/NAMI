@@ -49,7 +49,11 @@ public sealed record PlanLink(
     LinkEndpoint Source,
     LinkEndpoint Target,
     LinkMedium Medium,
-    string? Protocol = null);
+    string? Protocol = null)
+{
+    // Keep the package field readable by clients that support per-link routing.
+    public string LineType => "elbow";
+}
 
 public sealed record LinkEndpoint(string ComponentId, string? InterfaceId = null);
 

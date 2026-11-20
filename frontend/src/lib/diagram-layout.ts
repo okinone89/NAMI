@@ -1,16 +1,16 @@
-import type { Component, DiagramPosition, PlanNetwork } from "@/lib/plans"
+import type { Component, DiagramPosition, PlanInterface } from "@/lib/plans"
 
 export type DiagramBox = DiagramPosition & { width: number; height: number }
 
 export const canvasWidth = 760
 const componentWidth = 176
-const componentHeight = 64
+const baseHeight = 68
 const guestColumn = 208
 const guestRow = 112
 
 export function layoutDiagram(
   components: Component[],
-  networks: PlanNetwork[]
+  interfaces: PlanInterface[]
 ) {
   const guests = new Map<string, Component[]>()
   for (const component of components) {
@@ -21,22 +21,15 @@ export function layoutDiagram(
   }
 
   const componentBoxes = new Map<string, DiagramBox>()
-  const networkBoxes = new Map(
-    networks.map(({ id, position }, index) => [
-      id,
-      {
-        ...(position ?? {
-          x: 28 + (index % 3) * 240,
-          y: 24 + Math.floor(index / 3) * 66,
-        }),
-        width: 176,
-        height: 44,
-      },
-    ])
-  )
-
+  const portCounts = new Map<string, number>()
+  for (const port of interfaces)
+    portCounts.set(
+      port.componentId,
+      (portCounts.get(port.componentId) ?? 0) + 1
+    )
+  const heightOf = (id: string) => baseHeight + 28 * (portCounts.get(id) ?? 0)
   let left = 28
-  let top = 48 + Math.ceil(networks.length / 3) * 66
+  let top = 48
   let rowHeight = 0
   const topLevel = components.filter(({ hostId }) => !hostId)
   for (const component of topLevel) {
@@ -44,7 +37,9 @@ export function layoutDiagram(
     const hasTwoColumns = members.length > 1
     const offset = hasTwoColumns ? guestColumn / 2 : 0
     const width = componentWidth + (hasTwoColumns ? guestColumn : 0)
-    const height = componentHeight + Math.ceil(members.length / 2) * guestRow
+    const componentHeight = heightOf(component.id)
+    let guestTop = componentHeight + 36
+    let guestRowHeight = 0
 
     if (left + width > canvasWidth - 28) {
       left = 28
@@ -61,16 +56,24 @@ export function layoutDiagram(
     for (const [index, guest] of members.entries()) {
       const position = guest.position ?? {
         x: host.x - offset + (index % 2) * guestColumn,
-        y: host.y + (Math.floor(index / 2) + 1) * guestRow,
+        y: host.y + guestTop,
       }
       componentBoxes.set(guest.id, {
         ...position,
         width: componentWidth,
-        height: componentHeight,
+        height: heightOf(guest.id),
       })
+      guestRowHeight = Math.max(guestRowHeight, heightOf(guest.id))
+      if (index % 2 === 1 || index === members.length - 1) {
+        guestTop += Math.max(guestRow, guestRowHeight + 32)
+        guestRowHeight = 0
+      }
     }
     left += width + 64
-    rowHeight = Math.max(rowHeight, height)
+    rowHeight = Math.max(
+      rowHeight,
+      members.length ? guestTop - 32 : componentHeight
+    )
   }
   const enclosures = new Map(
     Array.from(guests, ([id, members]) => [
@@ -82,7 +85,7 @@ export function layoutDiagram(
     ])
   )
 
-  return { componentBoxes, networkBoxes, guests, topLevel, enclosures }
+  return { componentBoxes, guests, topLevel, enclosures }
 }
 
 export function hostEnclosure(boxes: DiagramBox[]): DiagramBox {

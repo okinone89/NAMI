@@ -1,3 +1,4 @@
+import { profileSummary } from "./protocol-profiles"
 import type { Plan, PlanInterface } from "@/lib/plans"
 
 export type DiagramSearchResult = {
@@ -23,10 +24,19 @@ export function searchDiagram(
   }
   return plan.components.flatMap((component) => {
     const ports = interfaces.get(component.id) ?? []
-    const matchesType = component.type.toLowerCase().includes(term)
+    const matchesType = [component.type, component.name].some((value) =>
+      value.toLowerCase().includes(term)
+    )
     const matches = matchesType
       ? ports
-      : ports.filter(({ ipv4 }) => ipv4?.includes(term))
+      : ports.filter((port) =>
+          [
+            port.name,
+            port.ipv4,
+            networkNames.get(port.networkId ?? ""),
+            profileSummary(port.protocolProfiles),
+          ].some((value) => value?.toLowerCase().includes(term))
+        )
     const networkIds = new Set(matches.map(({ networkId }) => networkId))
     if (matchesType && networkIds.size === 0) networkIds.add(null)
     return Array.from(networkIds, (networkId) => ({

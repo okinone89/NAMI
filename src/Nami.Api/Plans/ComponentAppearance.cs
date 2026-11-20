@@ -23,7 +23,9 @@ public sealed record ComponentAppearance(
         switch (Kind)
         {
             case "builtIn" when ImageData is null && Shape is null && Label is null &&
-                Symbol is ("plc" or "hmi" or "switch" or "router" or "accessPoint" or "server" or "vm" or "computer" or "generic"):
+                Symbol is ("plc" or "hmi" or "switch" or "router" or "accessPoint" or "server" or "vm" or "computer" or "generic" or
+                    "vfd" or "servoDrive" or "ioLinkMaster" or "ioLinkHub" or "ioLinkDevice" or "remoteIo" or
+                    "safetyPlc" or "protocolGateway" or "visionCamera" or "barcodeReader"):
             case "custom" when Symbol is null && Shape is null && Label is null && IsIcon(ImageData):
             case "shape" when Symbol is null && ImageData is null &&
                 Shape is ("rectangle" or "ellipse" or "diamond") && Label is { Length: <= MaxShapeLabelLength }:

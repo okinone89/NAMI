@@ -33,7 +33,7 @@ export function DiagramSearch({
             ref={searchInput}
             type="search"
             aria-label="Search plan"
-            placeholder="Search type or IPv4"
+            placeholder="Filter components and interfaces"
             className="min-h-11 bg-background pl-9 [&::-webkit-search-cancel-button]:hidden"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}

@@ -1,64 +1,58 @@
-# NAMI API
+# NAMI
 
-Install the .NET 10 SDK. From the repository root, run
+NAMI is a self-hosted web app for planning industrial networks. Draw the connections between PLCs, operator panels, drives, servers, and virtual machines, then switch to a table to review the IPv4 address and protocol profile of each interface. Both views use the same plan.
 
-```sh
-dotnet build src/Nami.Api
-dotnet run --no-build --project src/Nami.Api -- --urls http://127.0.0.1:5080
-```
+![Network diagram of a cartoning line. The PLC connects the machine LAN to line services, where an edge server hosts a historian VM.](docs/screenshots/cartoning-line-diagram.png)
 
-Open `http://127.0.0.1:5080/health`. A successful startup returns HTTP 200 and `{"status":"ready"}`. NAMI creates and upgrades its tables in a transaction before accepting requests.
+[Installation](#installation) · [Your first plan](#your-first-plan) · [Features](#features) · [Development](#development) · [Running a shared instance](#running-a-shared-instance)
 
-## Database configuration and recovery
+## Installation
 
-The checked-in example in `src/Nami.Api/appsettings.json` selects SQLite. The default file is `src/Nami.Api/data/nami.db` when launched as shown above. Relative file paths resolve against the application's content root. The service account needs write access to the containing directory. For a deployed instance, use a persistent directory outside the application release and set
+For a local installation from source, use Git, the .NET 10 **SDK**, Node.js 24 with npm, and a POSIX shell such as the one on macOS or Linux. SQLite is the default database. [Download .NET 10](https://dotnet.microsoft.com/download/dotnet/10.0) · [Download Node.js](https://nodejs.org/en/download)
 
 ```sh
-export Database__Provider=SQLite
-export Database__File=/var/lib/nami/nami.db
+git clone https://github.com/okinone89/NAMI.git
+cd NAMI
+./run --dev
 ```
 
-For PostgreSQL, provision a database and a login with permission to connect and create or alter NAMI's tables in its schema. Configure the service environment before startup, for example
+The launcher installs frontend dependencies as needed, builds the workspace, and starts the app and API together. Open [NAMI on localhost](http://127.0.0.1:5080). A fresh database shows **No plans yet**. Choose **Unlock editing** and enter `nami-local-editor`, the default passphrase for local development.
+
+Plans are saved in `src/Nami.Api/data/nami.db` and are available the next time you run the launcher. Press Ctrl+C to stop it. If port 5080 is busy, run `./run --dev --urls http://127.0.0.1:5082` and open port 5082 instead.
+
+## Your first plan
+
+1. Choose **New plan**, name it `Cartoning line`, and select **Create plan**.
+2. Choose **Add network**, enter `Machine LAN` and the subnet `192.0.2.0/24`, then select **Save network**.
+3. Choose **Add component**, name it `Cartoner PLC`, and set its type to `PLC`. Use **Add interface** to add `X1`, assign it to `Machine LAN`, enter `192.0.2.10`, and select **Save component**. Repeat for an operator panel with address `192.0.2.20`.
+4. In **Diagram**, choose **Add link**, select the source and target components and their interfaces, choose **Wired**, and select **Save link**. Drag the components into position.
+5. Switch to **Table** and filter for `192.0.2.10` to find the PLC interface. To share the drawing and address list together, choose **Export PDF**, select **Diagram and table** and **Whole plan**, then **Download PDF**.
+
+## Features
+
+**Topology diagrams.** Place devices from the component library, group VMs with their host, and distinguish wired, wireless, and virtual links. Select a network to focus the diagram, or search for an address to find the component that owns it.
+
+**Interface inventory.** Sort and filter ports by component, network, IPv4 address, or protocol. Record PROFINET station names and roles, EtherNet/IP device classes, and Modbus TCP settings. In the example below, the two rows for the Cartoner PLC show which port serves each network.
+
+![Interface table for the cartoning line. PLC port X1 uses PROFINET on the machine LAN and X2 uses Modbus TCP on line services.](docs/screenshots/cartoning-line-interfaces.png)
+
+**IPv4 planning.** Check addresses against their subnet and flag duplicates within a named network. Two isolated machines can use the same subnet. Configure allocation pools and exclusions, then preview available addresses with **Auto-assign IPv4**.
+
+**Inventory and plan exchange.** Export the interface inventory as CSV, or import a CSV or pasted spreadsheet and review changes before applying them. Use **Export PDF** for a readable handoff. Editors can also use **Export plan** and **Import plan** to transfer a JSON package between installations. Importing creates a new plan with its components, layout, and links.
+
+## Development
+
+The ASP.NET Core API and persistence code live in [src/Nami.Api](src/Nami.Api). The React and TypeScript workspace lives in [frontend](frontend), with Vite serving the development UI. The [glossary](GLOSSARY.md) defines the terms used in both.
+
+### Run with hot reload
+
+From the repository root, start the API in one terminal. Development mode enables the local editor passphrase.
 
 ```sh
-export Database__Provider=PostgreSQL
-export ConnectionStrings__Nami='Host=localhost;Database=nami;Username=nami'
+ASPNETCORE_ENVIRONMENT=Development dotnet watch --project src/Nami.Api run --no-launch-profile -- --urls http://127.0.0.1:5080
 ```
 
-Supply authentication through a protected PostgreSQL password file or inject the full connection string from the deployment's secret store. Keep credentials out of tracked settings. The named PostgreSQL database holds all application data. Switching providers selects another database and does not transfer data.
-
-Back up before upgrades. For SQLite, use the SQLite shell's online backup command, for example `sqlite3 /var/lib/nami/nami.db ".backup '/backups/nami.db'"`. Stop NAMI and restore the snapshot to a fresh file at the configured path. For PostgreSQL, use the server's managed snapshots or `pg_dump -Fc` and restore with `pg_restore` into an empty database. Start NAMI against the restored database and check readiness and expected records.
-
-## Shared editor access
-
-Serve the frontend and `/api` from the same HTTPS origin on the internal server. Anyone on the site LAN or VPN who can reach NAMI can browse plans. To enable editing, the deployment administrator sets `Editor__Passphrase` in the API service's environment through its secret store, then starts the service. Choose a long, randomly generated passphrase and share it with editors through a protected channel. With the setting unset, the deployment serves read-only browsing.
-
-Select **Unlock editing** and enter the shared passphrase to edit any plan. **Sign out** ends the session and keeps the current plan open. Eight hours without plan API activity also ends the session. Checking the session status alone does not restart the idle timer.
-
-To recover a lost passphrase or rotate it, stop the API instance, replace `Editor__Passphrase` in the service configuration, and restart it. The API holds editor sessions in that process, so the restart revokes all previous sessions. Editors unlock again with the replacement passphrase. Deploy one API process per NAMI installation.
-
-For local HTTP development on loopback, use a separate passphrase and enable the development cookie by launching the API with `ASPNETCORE_ENVIRONMENT=Development`. Set `Editor__Passphrase` in the local API environment before launch.
-
-## Integration tests
-
-On macOS or Linux, install Python 3 and put the PostgreSQL server utilities (`initdb`, `pg_ctl`, `psql`) on PATH. Run as a regular user. The suite starts the API on loopback and creates its own SQLite file and disposable PostgreSQL cluster.
-
-```sh
-dotnet build tests/PlanPersistence
-python3 tests/startup.py
-python3 tests/plan_api.py
-```
-
-To run the editor session HTTP tests with a controllable clock, build and run the separate loopback test host through the Python suite:
-
-```sh
-dotnet build tests/EditorSessionHost
-python3 tests/editor_sessions.py
-```
-
-## React workspace
-
-Use Node.js 24 and npm. From the repository root, run
+In a second terminal, start Vite and open the URL it prints (normally `http://localhost:5173`). It forwards `/api` and `/health` to the API on port 5080. Set `NAMI_API_ORIGIN` when starting Vite if your API uses another address.
 
 ```sh
 cd frontend
@@ -66,22 +60,49 @@ npm ci
 npm run dev
 ```
 
-Start the API in another terminal using the command above, then open the local URL printed by Vite (normally http://localhost:5173). Vite forwards `/api` and `/health` to the API on port 5080. Choose a plan with **Open plan**. After unlocking editing, use **New plan**, **Add network**, or **Add component** to build the inventory. Select a component in either view to open its details and interfaces.
+### Build and test
 
-The workspace uses shadcn preset `b2CRHdRTM`. Its generated configuration and theme are in `frontend/components.json` and `frontend/src/index.css`. From `frontend`, run `npm run build` to typecheck and produce the Vite production bundle in `dist/`. CI runs that build and the desktop and phone browser tests. To run the tests locally, install the .NET 10 SDK and run `npx playwright install chromium --only-shell` followed by `npm test`. Playwright starts Vite and an API with a disposable SQLite database. Set `NAMI_TEST_WEB_PORT` and `NAMI_TEST_API_PORT` to override the default ports 5174 and 5081.
+From `frontend/`, run the static checks and browser tests. The build typechecks the app and writes the production bundle to `dist/`.
 
-## First-release verification
+```sh
+npm run lint
+npm run build
+npx playwright install chromium --only-shell
+npm test
+```
 
-From a clean checkout with the tools above, build the API and both integration test hosts, then install and build the React app.
+Playwright starts the application with a disposable SQLite database on port 5174 and exercises desktop and phone layouts. Set `NAMI_TEST_WEB_PORT` to use a different port. The [frontend CI workflow](.github/workflows/frontend.yml) runs the build and browser suite on pushes and pull requests.
+
+For the API integration suite, use Python 3 on macOS or Linux and put the PostgreSQL server utilities (`initdb`, `pg_ctl`, and `psql`) on your PATH. Run as a regular user from the repository root. The tests create their own SQLite files and temporary PostgreSQL clusters.
 
 ```sh
 dotnet build src/Nami.Api
 dotnet build tests/PlanPersistence
 dotnet build tests/EditorSessionHost
 python3 -B -m unittest discover -s tests -p '*.py'
-
-(cd frontend && npm ci && npm run build && npx playwright install chromium --only-shell)
 ```
+
+## Running a shared instance
+
+Run `./run` to start in Production mode. Serve the workspace and `/api` from the same HTTPS origin on the site LAN or VPN. Anyone who can reach the site can browse its plans. To enable editing, set `Editor__Passphrase` in the service environment through your secret store before startup. Leaving it unset gives visitors read-only access.
+
+An unlocked editor can change any plan. **Sign out** ends the session, as do eight hours without plan API activity. Checking session status alone does not extend it. Run one API process per installation because sessions are held in memory. To rotate the passphrase, change the setting and restart the process. Editors must then unlock again.
+
+### Database and recovery
+
+NAMI creates or upgrades its tables in a transaction at startup. A successful readiness check returns HTTP 200 and `{"status":"ready"}` at `/health`.
+
+| Provider | Service environment | Storage |
+| --- | --- | --- |
+| SQLite (default) | `Database__Provider=SQLite` and optionally `Database__File=/var/lib/nami/nami.db` | Relative paths resolve against the API content root. Choose a persistent directory writable by the service account. |
+| PostgreSQL | `Database__Provider=PostgreSQL` and `ConnectionStrings__Nami='Host=localhost;Database=nami;Username=nami'` | Provision the database and grant the login permission to connect and create or alter tables. Supply authentication through a protected password file or the service secret store. |
+
+Back up before upgrading. For SQLite, use the SQLite shell’s online backup command, for example `sqlite3 /var/lib/nami/nami.db ".backup '/backups/nami.db'"`. Stop NAMI before restoring the snapshot to a fresh file at the configured path. For PostgreSQL, use a managed snapshot or `pg_dump -Fc` and restore with `pg_restore` into an empty database. Restart NAMI and verify both readiness and the expected plans.
+
+Changing providers points NAMI at a different database. To move an individual plan, export its package from the source installation and import it into the destination.
+
+<details>
+<summary>First-release verification and cross-provider browser tests</summary>
 
 Run the browser suite once for each provider. Start each API with the database settings above, using a fresh SQLite file or empty PostgreSQL database. In a terminal at the repository root, run
 
@@ -114,3 +135,5 @@ The first-release run on macOS with .NET SDK 10.0.402, Node.js 24.22.0, and Post
 | Chromium with SQLite | 88 passed, with 12 skips for viewport and input combinations assigned to the other project. |
 | Chromium with PostgreSQL | 88 passed, with the same 12 viewport and input skips. |
 | Cross-provider transfer in Chromium | 4 passed, covering both provider directions on desktop and phone. |
+
+</details>
