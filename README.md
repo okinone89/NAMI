@@ -59,6 +59,16 @@ Plans are saved in `src/Nami.Api/data/nami.db` and are available the next time y
 
 **Inventory and plan exchange.** From the **Workspace** menu in either view, export the interface inventory as CSV, or import a CSV or pasted spreadsheet and review changes before applying them. Use **Export PDF** for a readable handoff. Editors can also use **Export plan** and **Import plan** to transfer a JSON package between installations. Importing creates a new plan with its components, layout, and links.
 
+To edit inventory in a spreadsheet, start with **Export inventory CSV**. Keep all ten headers when uploading or pasting. You can reorder the columns. If your sheet has ID columns from an older export, export a fresh copy and transfer your edits.
+
+```csv
+Component,Interface,Component type,Network,Network subnet,IPv4,Link partner,Partner port,Connection type,Link protocol
+Cartoner PLC,X1,PLC,Machine LAN,192.0.2.0/24,192.0.2.10,Panel switch,P08,Wired,PROFINET
+Panel switch,P08,Switch,,,,,,,
+```
+
+Names identify components and networks within the plan and interfaces within their component. In this example, the first row refers to the switch port defined in the second. A blank partner port means the link ends at the component. Blank partner cells preserve existing connections.
+
 ## Development
 
 The ASP.NET Core API and persistence code live in [src/Nami.Api](src/Nami.Api). The React and TypeScript workspace lives in [frontend](frontend), with Vite serving the development UI. The [glossary](GLOSSARY.md) defines the terms used in both.
