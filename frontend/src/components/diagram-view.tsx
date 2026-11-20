@@ -232,8 +232,12 @@ export function DiagramView({
     const frame = canvasRef.current
     if (!frame || !boxes.length) return
     const bounds = [...boxes]
-    if (linkLayer.current?.childElementCount)
+    if (linkLayer.current?.childElementCount) {
+      // At overview zoom, browser font rounding can hide the width of SVG labels.
+      // Measure them at normal size before fitting the selected network.
+      if (zoom !== 1) flushSync(() => setZoom(1))
       bounds.push(linkLayer.current.getBBox())
+    }
     const left = Math.min(...bounds.map((box) => box.x))
     const top = Math.min(...bounds.map((box) => box.y))
     const right = Math.max(...bounds.map((box) => box.x + box.width))
