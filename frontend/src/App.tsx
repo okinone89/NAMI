@@ -7,6 +7,7 @@ import {
   IconUpload,
   IconFolderOpen,
   IconFolderPlus,
+  IconHelpCircle,
   IconPencil,
   IconPlus,
   IconSun,
@@ -22,6 +23,7 @@ import { PlanNameDialog } from "@/components/plan-name-dialog"
 import { PlanPackageImport } from "@/components/plan-package-controls"
 import { PlanNetworks } from "@/components/plan-networks"
 import { ComponentEditor } from "@/components/component-editor"
+import { ImportExportHelp } from "@/components/import-export-help"
 import { DiagramView } from "@/components/diagram-view"
 import { InterfaceTable } from "@/components/interface-table"
 import { Dialog } from "@/components/ui/dialog"
@@ -58,6 +60,7 @@ const views = {
   },
 }
 type View = keyof typeof views
+const automaticIpKey = "nami.automatic-ip-assignment"
 type ComponentSelection = {
   planId: string
   componentId: string | null
@@ -72,7 +75,17 @@ export default function App() {
     document.documentElement.classList.contains("dark")
   )
   const editorSession = useEditorSession()
-  const workspace = usePlanWorkspace(editorSession.refresh)
+  const [automaticIpAssignment, setAutomaticIpAssignment] = useState(() => {
+    try {
+      return localStorage.getItem(automaticIpKey) === "true"
+    } catch {
+      return false
+    }
+  })
+  const workspace = usePlanWorkspace(
+    editorSession.refresh,
+    automaticIpAssignment
+  )
   const { plans, plan, failed, loading } = workspace
   const { value: filter, update: updateFilter } = usePlanFilter(plan?.id)
   const networkIds = useMemo(
@@ -88,7 +101,7 @@ export default function App() {
   const [renaming, setRenaming] = useState<string>()
   const [view, setView] = useState<View>("Diagram")
   const [fileDialog, setFileDialog] = useState<
-    "pdf" | "inventory" | "package"
+    "pdf" | "inventory" | "package" | "help"
   >()
   if (
     !editorSession.canEdit &&
@@ -222,10 +235,11 @@ export default function App() {
                 <IconUpload aria-hidden="true" /> Import plan
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem onClick={() => setFileDialog("help")}>
+              <IconHelpCircle aria-hidden="true" /> Import/export help
+            </DropdownMenuItem>
           </DropdownMenuGroup>
-          {(plan || (editorSession.canEdit && plans)) && (
-            <DropdownMenuSeparator />
-          )}
+          <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuItem
               onClick={() => {
@@ -325,13 +339,45 @@ export default function App() {
                   onPlanChanged={workspace.refreshPlan}
                 />
               )}
+              {plan && !failed && editorSession.canEdit && (
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 px-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={automaticIpAssignment}
+                    onChange={(event) => {
+                      const checked = event.target.checked
+                      setAutomaticIpAssignment(checked)
+                      try {
+                        localStorage.setItem(automaticIpKey, String(checked))
+                      } catch {
+                        // The current view still uses the selected setting.
+                      }
+                    }}
+                    className="size-4 shrink-0 accent-primary"
+                  />
+                  Automatic IP assignment
+                </label>
+              )}
             </div>
           </div>
+          {editorSession.canEdit &&
+            automaticIpAssignment &&
+            workspace.unassignedCount && (
+              <p role="status" className="border-b px-4 py-2 text-xs">
+                The network allocation pool ran out of addresses.{" "}
+                {workspace.unassignedCount}{" "}
+                {workspace.unassignedCount === 1
+                  ? "interface was"
+                  : "interfaces were"}{" "}
+                saved without IPv4.
+              </p>
+            )}
           {plan && !failed ? (
             <ActiveView
               key={plan.id}
               plan={plan}
               canEdit={editorSession.canEdit}
+              automaticIpAssignment={automaticIpAssignment}
               savePlan={workspace.savePlan}
               filter={{ ...filter, networkIds }}
               updateFilter={updateFilter}
@@ -362,6 +408,9 @@ export default function App() {
           )}
         </section>
       </main>
+      {fileDialog === "help" && (
+        <ImportExportHelp onClose={() => setFileDialog(undefined)} />
+      )}
       {fileDialog === "pdf" && plan && !failed && (
         <PdfExport
           plan={plan}
@@ -408,6 +457,7 @@ export default function App() {
           onClose={() => setSelection(undefined)}
           onMove={activeSelection?.onMove}
           savePlan={saveComponent}
+          withEditorAccess={workspace.withEditorAccess}
         />
       )}
       {plan && renaming === plan.id && editorSession.canEdit && (

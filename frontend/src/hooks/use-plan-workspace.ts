@@ -12,7 +12,10 @@ import {
   type PlanSummary,
 } from "@/lib/plans"
 
-export function usePlanWorkspace(onEditorExpired: () => void) {
+export function usePlanWorkspace(
+  onEditorExpired: () => void,
+  automaticIpAssignment: boolean
+) {
   const [plans, setPlans] = useState<PlanSummary[]>()
   const [selection, setSelection] = useState(() =>
     new URL(location.href).searchParams.get("plan")
@@ -21,6 +24,10 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
   const [failedPlanId, setFailedPlanId] = useState<string>()
   const [listFailed, setListFailed] = useState(false)
   const [readVersion, setReadVersion] = useState(0)
+  const [allocationNotice, setAllocationNotice] = useState<{
+    planId: string
+    count: number
+  }>()
   const planId = plans?.find(({ id }) => id === selection)?.id ?? plans?.[0]?.id
   const plan = snapshot?.id === planId ? snapshot : undefined
 
@@ -60,6 +67,7 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     url.searchParams.set("plan", id)
     history.replaceState(null, "", url)
     setSelection(id)
+    setAllocationNotice(undefined)
   }
 
   async function withEditorAccess<T>(operation: Promise<T>): Promise<T> {
@@ -93,7 +101,27 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     next: Plan,
     keepAddressConflicts?: AddressConflictApproval[]
   ) {
-    const saved = await withEditorAccess(savePlan(next, keepAddressConflicts))
+    const saved = await withEditorAccess(
+      savePlan(next, keepAddressConflicts, automaticIpAssignment || undefined)
+    )
+    if (automaticIpAssignment && plan?.id === saved.id) {
+      const connected = new Set(
+        plan.interfaces.filter((port) => port.networkId).map((port) => port.id)
+      )
+      const subnetIds = new Set(
+        saved.networks
+          .filter((network) => network.subnet)
+          .map((network) => network.id)
+      )
+      const count = saved.interfaces.filter(
+        (port) =>
+          port.ipv4 === null &&
+          port.networkId &&
+          subnetIds.has(port.networkId) &&
+          !connected.has(port.id)
+      ).length
+      setAllocationNotice(count ? { planId: saved.id, count } : undefined)
+    }
     setSnapshot((current) =>
       current?.id === saved.id && current.revision < saved.revision
         ? saved
@@ -121,6 +149,8 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     plans,
     plan,
     planId,
+    unassignedCount:
+      allocationNotice?.planId === planId ? allocationNotice?.count : undefined,
     failed:
       listFailed || (failedPlanId !== undefined && failedPlanId === planId),
     loading: !plans || (planId !== undefined && !plan),

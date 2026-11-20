@@ -25,9 +25,11 @@ internal static class InventoryEndpoints
     private static async Task<Results<Ok<InventoryCommitResponse>, Conflict<InventoryPreviewResponse>, ProblemHttpResult>> Commit(
         string id, InventoryCommitRequest request, PlanStore store, CancellationToken cancellationToken)
     {
-        var draft = new InventoryPreviewRequest(request.Rows, request.KeepAddressConflicts, request.Answers);
+        var draft = new InventoryPreviewRequest(request.Rows, request.KeepAddressConflicts, request.Answers,
+            request.AutomaticIpAssignment);
         if (!InventoryPreview.IsValid(draft) || string.IsNullOrWhiteSpace(request.StateToken) ||
-            (request.BulkEdit && draft.Rows!.Any(row => !row.Skip && string.IsNullOrWhiteSpace(row.InterfaceId))))
+            (request.BulkEdit && draft.Rows!.Any(row => !row.Skip && string.IsNullOrWhiteSpace(row.InterfaceId))) ||
+            (request.AutomaticIpAssignment && !request.BulkEdit))
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest,
                 title: "Confirm a preview for the selected rows.");
@@ -121,7 +123,8 @@ internal sealed record InventoryCommitRequest(
     IReadOnlyList<AddressConflictApproval>? KeepAddressConflicts,
     string? StateToken,
     bool BulkEdit = false,
-    IReadOnlyDictionary<string, string>? Answers = null);
+    IReadOnlyDictionary<string, string>? Answers = null,
+    bool AutomaticIpAssignment = false);
 
 /// <summary>The saved plan and whether this import can be undone.</summary>
 internal sealed record InventoryCommitResponse(Plan Plan, InventoryUndoStatus? Undo);

@@ -26,6 +26,28 @@ internal static class AddressAllocation
     public const string Exhausted = "exhausted";
     public const string Unavailable = "unavailable";
 
+    public static Plan AssignNewAttachments(Plan current, Plan proposed)
+    {
+        var connected = current.Interfaces.Where(port => port.NetworkId is not null)
+            .Select(port => port.Id).ToHashSet(StringComparer.Ordinal);
+        var selected = proposed.Interfaces
+            .Where(port => port is { NetworkId: not null, Ipv4: null } && !connected.Contains(port.Id))
+            .Select(port => port.Id).ToArray();
+        return selected.Length == 0 ? proposed : Apply(proposed, Preview(proposed, selected));
+    }
+
+    public static Plan Apply(Plan plan, AddressAllocationPreview preview)
+    {
+        var changes = preview.Assignments.Where(assignment => assignment.Status == Proposed)
+            .ToDictionary(assignment => assignment.InterfaceId, assignment => assignment.Ipv4);
+        return changes.Count == 0 ? plan : plan with
+        {
+            Interfaces = plan.Interfaces.Select(port => changes.TryGetValue(port.Id, out var ipv4)
+                ? port with { Ipv4 = ipv4 }
+                : port).ToArray()
+        };
+    }
+
     public static string? ReadRanges(PlanNetwork network, Ipv4Subnet subnet, out Ipv4Interval pool,
         out List<Ipv4Interval> exclusions)
     {
@@ -67,8 +89,8 @@ internal static class AddressAllocation
             .Where(port => port is { Ipv4: null, NetworkId: not null })
             .GroupBy(port => port.NetworkId!))
         {
-            var network = networks[group.Key];
-            if (!Ipv4Subnet.TryParse(network.Subnet, out var subnet) ||
+            if (!networks.TryGetValue(group.Key, out var network) ||
+                !Ipv4Subnet.TryParse(network.Subnet, out var subnet) ||
                 ReadRanges(network, subnet, out var pool, out var blocked) is not null)
                 continue;
 

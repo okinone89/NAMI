@@ -10,6 +10,15 @@ export function subnetMask(subnet: string | null | undefined) {
   return subnetMasks[Number(subnet.split("/")[1])] ?? ""
 }
 
+export function interfaceAddressLabel(
+  ipv4: string | null,
+  subnet?: string | null
+) {
+  if (!ipv4) return "Unassigned"
+  const prefix = subnet?.split("/")[1]
+  return prefix ? `${ipv4}/${prefix}` : ipv4
+}
+
 export function networkCidr(address: string, mask: string) {
   if (!address && !mask) return null
   const prefix = subnetMasks.indexOf(mask)

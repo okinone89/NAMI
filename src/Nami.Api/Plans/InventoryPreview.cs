@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Nami.Api.Plans;
 
@@ -7,7 +8,8 @@ namespace Nami.Api.Plans;
 internal sealed record InventoryPreviewRequest(
     IReadOnlyList<InventoryImportRow>? Rows,
     IReadOnlyList<AddressConflictApproval>? KeepAddressConflicts = null,
-    IReadOnlyDictionary<string, string>? Answers = null);
+    IReadOnlyDictionary<string, string>? Answers = null,
+    bool AutomaticIpAssignment = false);
 
 /// <summary>One component or interface inventory row. Absent fields preserve existing values unless named in Clear.</summary>
 internal sealed record InventoryImportRow(
@@ -66,7 +68,9 @@ internal sealed record InventoryPreviewResponse(
     string StateToken,
     bool CanApply,
     IReadOnlyList<InventoryDecision> Decisions,
-    IReadOnlyList<InventoryLinkPreview> Links);
+    IReadOnlyList<InventoryLinkPreview> Links,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    int? UnassignedIpv4Count = null);
 
 internal sealed record InventoryPreviewResult(InventoryPreviewResponse Response, Plan Proposed);
 
@@ -76,7 +80,8 @@ internal static partial class InventoryPreview
 
     public static bool IsValid(InventoryPreviewRequest request) =>
         request.Rows is { } rows &&
-        rows.All(row => row is not null && row.RowNumber > 0) &&
+        rows.All(row => row is not null && row.RowNumber > 0 &&
+            (!request.AutomaticIpAssignment || row.Skip || !string.IsNullOrWhiteSpace(row.InterfaceId))) &&
         rows.Select(row => row.RowNumber).Distinct().Count() == rows.Count;
 
     public static InventoryPreviewResult Build(Plan current, InventoryPreviewRequest request)
@@ -103,6 +108,25 @@ internal static partial class InventoryPreview
             Interfaces = current.Interfaces.Select(port => byInterface.GetValueOrDefault(port.Id, port))
                 .Concat(changes.Where(row => row.Before is null).Select(row => row.After!)).ToArray()
         };
+
+        int? unassignedIpv4Count = null;
+        if (request.AutomaticIpAssignment)
+        {
+            var explicitlyCleared = edits.Where(row => row.Input.Clear?.Contains("ipv4") == true)
+                .Select(row => row.TargetInterfaceId).ToHashSet();
+            var selected = edits.Where(row => row.Before is { NetworkId: null, Ipv4: null } &&
+                    row.After is { NetworkId: not null, Ipv4: null } && !explicitlyCleared.Contains(row.After.Id))
+                .Select(row => row.After!.Id).Distinct().ToArray();
+            var allocation = AddressAllocation.Preview(proposed, selected);
+            var exhausted = allocation.Assignments.Count(item => item.Status == AddressAllocation.Exhausted);
+            if (exhausted > 0)
+                unassignedIpv4Count = exhausted;
+            proposed = AddressAllocation.Apply(proposed, allocation);
+            var allocatedPorts = proposed.Interfaces.ToDictionary(port => port.Id);
+            foreach (var row in edits)
+                if (row.After is { } port)
+                    row.After = allocatedPorts[port.Id];
+        }
 
         var wiring = new InventoryWiring(proposed);
         var pendingIdentity = candidates.Any(row => row.Errors.Any(error => error.Code is "possibleRename" or "conflictingRenames"));
@@ -151,6 +175,7 @@ internal static partial class InventoryPreview
             Rows = previewRows,
             Links = linkPreview,
             Decisions = decisions.Pending,
+            UnassignedIpv4Count = unassignedIpv4Count,
             NetworkRecords = current.Networks.Where(network => changedNetworks.Contains(network.Id)),
             NetworkMembers = current.Interfaces.Where(port => port.NetworkId is { } id && changedNetworks.Contains(id)),
 
@@ -163,7 +188,7 @@ internal static partial class InventoryPreview
         });
         var canApply = decisions.Pending.Count == 0 && blockers.Count == 0 &&
             previewRows.Any(row => row.CanApply) && previewRows.All(row => row.Errors.Count == 0);
-        return new(new(previewRows, stateToken, canApply, decisions.Pending, linkPreview), proposed);
+        return new(new(previewRows, stateToken, canApply, decisions.Pending, linkPreview, unassignedIpv4Count), proposed);
     }
 
     private static void ResolveRepeatedInterfaces(IEnumerable<Candidate> candidates, PlanIndex index, InventoryDecisions decisions)

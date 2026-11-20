@@ -8,7 +8,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { NetworkDialog } from "@/components/network-dialog"
 import { linkMediumLabels } from "@/lib/link-labels"
-import { subnetMask } from "@/lib/ipv4-subnet"
 import { networkColor } from "@/lib/network-color"
 import type { Plan, PlanNetwork } from "@/lib/plans"
 
@@ -69,7 +68,7 @@ export function PlanNetworks({
               <span
                 aria-hidden="true"
                 className="size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: networkColor(activeNetwork.id) }}
+                style={{ backgroundColor: networkColor(activeNetwork) }}
               />
               <span className="wrap-anywhere">
                 <span className="sr-only">Active network filter: </span>
@@ -97,7 +96,7 @@ export function PlanNetworks({
             <li
               key={network.id}
               className={`flex min-w-0 items-center border border-l-4 ${selected.includes(network.id) ? "border-primary bg-muted" : "border-border"}`}
-              style={{ borderLeftColor: networkColor(network.id) }}
+              style={{ borderLeftColor: networkColor(network) }}
             >
               <Button
                 variant="ghost"
@@ -122,9 +121,6 @@ export function PlanNetworks({
                 {network.subnet && (
                   <span className="font-mono text-xs text-muted-foreground">
                     {network.subnet}
-                    <span className="block">
-                      Mask {subnetMask(network.subnet)}
-                    </span>
                   </span>
                 )}
               </Button>

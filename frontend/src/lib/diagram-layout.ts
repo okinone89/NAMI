@@ -1,13 +1,9 @@
-import type {
-  Component,
-  DiagramPosition,
-  PlanInterface,
-  PlanNetwork,
-} from "@/lib/plans"
+import type { Component, DiagramPosition, PlanInterface } from "@/lib/plans"
 
 export type DiagramBox = DiagramPosition & { width: number; height: number }
 
 export const canvasWidth = 760
+export const diagramPortHeight = 28
 const componentWidth = 176
 const baseHeight = 68
 const guestColumn = 208
@@ -15,8 +11,7 @@ const guestRow = 112
 
 export function layoutDiagram(
   components: Component[],
-  interfaces: PlanInterface[],
-  networks: PlanNetwork[]
+  interfaces: PlanInterface[]
 ) {
   const guests = new Map<string, Component[]>()
   for (const component of components) {
@@ -27,16 +22,11 @@ export function layoutDiagram(
   }
 
   const componentBoxes = new Map<string, DiagramBox>()
-  const maskedNetworks = new Set(
-    networks.filter((n) => n.subnet).map((n) => n.id)
-  )
   const portHeights = new Map<string, number>()
   for (const port of interfaces) {
-    const height =
-      port.networkId && maskedNetworks.has(port.networkId) ? 40 : 28
     portHeights.set(
       port.componentId,
-      (portHeights.get(port.componentId) ?? 0) + height
+      (portHeights.get(port.componentId) ?? 0) + diagramPortHeight
     )
   }
   const heightOf = (id: string) => baseHeight + (portHeights.get(id) ?? 0)

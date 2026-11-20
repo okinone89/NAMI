@@ -19,6 +19,7 @@ export type PlanNetwork = {
   subnet: string | null
   position: DiagramPosition | null
   medium?: LinkMedium | null
+  color?: string | null
   allocationPool?: Ipv4Range | null
   excludedIpv4Ranges?: Ipv4Range[] | null
 }
@@ -153,13 +154,18 @@ export async function importPlan(file: File) {
 
 export async function savePlan(
   plan: Plan,
-  keepAddressConflicts?: AddressConflictApproval[]
+  keepAddressConflicts?: AddressConflictApproval[],
+  automaticIpAssignment?: boolean
 ) {
   return readResponse<Plan>(
     await fetch(planPath(plan.id), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...plan, keepAddressConflicts }),
+      body: JSON.stringify({
+        ...plan,
+        keepAddressConflicts,
+        automaticIpAssignment,
+      }),
     })
   )
 }
@@ -178,10 +184,11 @@ function requestAllocation(
 
 export async function previewAddressAllocation(
   id: string,
-  interfaceIds: string[]
+  interfaceIds: string[],
+  draftInterfaces?: Pick<PlanInterface, "id" | "networkId" | "ipv4">[]
 ) {
   return readResponse<AddressAllocationPreview>(
-    await requestAllocation(id, "preview", { interfaceIds })
+    await requestAllocation(id, "preview", { interfaceIds, draftInterfaces })
   )
 }
 

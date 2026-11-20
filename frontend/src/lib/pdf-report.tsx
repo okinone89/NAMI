@@ -7,11 +7,11 @@ import { flushSync } from "react-dom"
 import { DiagramLinks } from "@/components/diagram-links"
 import { AppearanceMark } from "@/components/diagram-component-label"
 import type { PlanFilter } from "@/hooks/use-plan-filter"
-import { layoutDiagram } from "./diagram-layout"
+import { diagramPortHeight, layoutDiagram } from "./diagram-layout"
 import { scopedDiagram } from "./diagram-scope"
 import { searchDiagram } from "./diagram-search"
 import { columns, interfaceRows } from "./interface-rows"
-import { subnetMask } from "./ipv4-subnet"
+import { interfaceAddressLabel } from "./ipv4-subnet"
 import { networkColor } from "./network-color"
 import type { Plan } from "./plans"
 
@@ -31,7 +31,7 @@ async function addDiagram(
   )
   const { layout } = scopedDiagram(
     plan,
-    layoutDiagram(plan.components, plan.interfaces, plan.networks),
+    layoutDiagram(plan.components, plan.interfaces),
     filter.networkIds,
     filter.query.trim() ? new Set(matches.map((r) => r.componentId)) : undefined
   )
@@ -119,17 +119,14 @@ async function addDiagram(
                   </text>
                   {ports.map((p) => {
                     const network = networks.get(p.networkId ?? "")
-                    const mask = subnetMask(network?.subnet)
                     const y = portY
-                    portY += mask ? 40 : 28
+                    portY += diagramPortHeight
                     return (
                       <g key={p.id} transform={`translate(8 ${y})`}>
                         <rect
                           width={3}
-                          height={mask ? 36 : 24}
-                          fill={
-                            p.networkId ? networkColor(p.networkId) : "#94a3b8"
-                          }
+                          height={diagramPortHeight - 4}
+                          fill={network ? networkColor(network) : "#94a3b8"}
                         />
                         <text x={8} y={10} fontSize={11}>
                           {fit(
@@ -139,13 +136,8 @@ async function addDiagram(
                           )}
                         </text>
                         <text x={8} y={23} fontSize={11}>
-                          {p.ipv4 ?? "Unassigned"}
+                          {interfaceAddressLabel(p.ipv4, network?.subnet)}
                         </text>
-                        {mask && (
-                          <text x={8} y={35} fontSize={11}>
-                            Mask {mask}
-                          </text>
-                        )}
                       </g>
                     )
                   })}

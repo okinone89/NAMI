@@ -17,6 +17,9 @@ internal static class PlanValidation
             ArgumentException.ThrowIfNullOrWhiteSpace(network.Name);
             if (network.Medium is { } medium && !Enum.IsDefined(medium))
                 throw new ArgumentException($"Network '{network.Id}' must use a known medium.");
+            if (network.Color is { } color &&
+                (color.Length != 7 || color[0] != '#' || !color.Skip(1).All(char.IsAsciiHexDigit)))
+                throw new ArgumentException($"Network '{network.Id}' must use a six-digit hex color.");
         }
 
         foreach (var component in plan.Components)

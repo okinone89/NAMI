@@ -7,6 +7,7 @@ import {
 import { componentTypeSuggestions } from "@/lib/component-appearance"
 import { useId, useState, type FormEvent } from "react"
 import { InterfaceLinkDialog } from "./interface-link-dialog"
+import { AddressAllocationDialog } from "@/components/address-allocation-dialog"
 import { ComponentAppearanceFields } from "@/components/component-appearance-fields"
 import { ComponentInterfaceFields } from "@/components/component-interface-fields"
 import {
@@ -23,12 +24,14 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldGroup, FieldLabel, FieldSet } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { NativeSelect } from "@/components/ui/native-select"
 import type { AddressConflictApproval } from "@/lib/address-issues"
 import type {
   Component,
   Plan,
   PlanInterface,
   SavePlanSnapshot,
+  WithEditorAccess,
 } from "@/lib/plans"
 
 type Props = {
@@ -39,6 +42,7 @@ type Props = {
   onClose: () => void
   onMove?: () => void
   savePlan: SavePlanSnapshot
+  withEditorAccess: WithEditorAccess
 }
 
 export function ComponentEditor({
@@ -49,6 +53,7 @@ export function ComponentEditor({
   onClose,
   onMove,
   savePlan,
+  withEditorAccess,
 }: Props) {
   const formId = useId()
   const [draft, setDraft] = useState<Component>(
@@ -69,6 +74,7 @@ export function ComponentEditor({
     source: PlanInterface
   }>()
   const [ports, setPorts] = useState(savedPorts)
+  const [suggestionPortId, setSuggestionPortId] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [readingIcon, setReadingIcon] = useState(false)
   const [failure, setFailure] = useState<unknown>()
@@ -254,7 +260,7 @@ export function ComponentEditor({
                     <FieldLabel htmlFor={`${formId}-host`}>
                       Hosted on
                     </FieldLabel>
-                    <select
+                    <NativeSelect
                       id={`${formId}-host`}
                       value={draft.hostId ?? ""}
                       onChange={(event) =>
@@ -263,7 +269,6 @@ export function ComponentEditor({
                           hostId: event.target.value || null,
                         })
                       }
-                      className="min-h-11 border border-input bg-background px-2"
                     >
                       <option value="">No host</option>
                       {plan.components
@@ -277,7 +282,7 @@ export function ComponentEditor({
                             {host.name}
                           </option>
                         ))}
-                    </select>
+                    </NativeSelect>
                   </Field>
                 )}
               </FieldGroup>
@@ -307,6 +312,15 @@ export function ComponentEditor({
                   allowLink={plan.components.some((c) => c.id !== draft.id)}
                   port={port}
                   networks={plan.networks}
+                  onSuggestIpv4={
+                    !port.ipv4?.trim() &&
+                    plan.networks.some(
+                      (network) =>
+                        network.id === port.networkId && network.subnet
+                    )
+                      ? () => setSuggestionPortId(port.id)
+                      : undefined
+                  }
                   addressIssues={plan.addressIssues?.filter((issue) =>
                     issue.interfaces.some(
                       (item) => item.interfaceId === port.id
@@ -379,6 +393,33 @@ export function ComponentEditor({
           )
         )}
       </DialogContent>
+      {canEdit && suggestionPortId && (
+        <AddressAllocationDialog
+          plan={{
+            ...plan,
+            components: [
+              ...plan.components.filter((item) => item.id !== draft.id),
+              draft,
+            ],
+            interfaces: ports,
+          }}
+          interfaceId={suggestionPortId}
+          draftInterfaces={ports.map(({ id, networkId, ipv4 }) => ({
+            id,
+            networkId,
+            ipv4,
+          }))}
+          onUseSuggestion={(ipv4) =>
+            setPorts((current) =>
+              current.map((port) =>
+                port.id === suggestionPortId ? { ...port, ipv4 } : port
+              )
+            )
+          }
+          onClose={() => setSuggestionPortId(undefined)}
+          withEditorAccess={withEditorAccess}
+        />
+      )}
     </Dialog>
   )
 }

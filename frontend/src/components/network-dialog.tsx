@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { PlanNameDialog } from "@/components/plan-name-dialog"
 import { networkCidr, subnetMask } from "@/lib/ipv4-subnet"
 import { linkMediumLabels } from "@/lib/link-labels"
+import { defaultNetworkColor, networkColor } from "@/lib/network-color"
 import type {
   LinkMedium,
   DiagramPosition,
@@ -35,27 +36,32 @@ export function NetworkDialog({
   const subnetId = useId()
   const [address, setAddress] = useState(network?.subnet?.split("/")[0] ?? "")
   const [mask, setMask] = useState(subnetMask(network?.subnet))
+  const [networkId] = useState(() => network?.id ?? crypto.randomUUID())
+  const [color, setColor] = useState(() =>
+    network ? networkColor(network) : defaultNetworkColor(networkId)
+  )
 
   async function save(name: string, fields: FormData) {
     const savedSubnet = networkCidr(address.trim(), mask.trim())
     const medium = fields.get("medium") as LinkMedium | ""
-    const addressing = {
+    const details = {
       medium: medium || null,
       subnet: savedSubnet,
+      color,
       ...readAllocationFields(fields),
     }
     if (network) {
       const networks = plan.networks.map((item) =>
-        item.id === network.id ? { ...item, name, ...addressing } : item
+        item.id === network.id ? { ...item, name, ...details } : item
       )
       await savePlan({ ...plan, networks })
       return
     }
 
     const created = {
-      id: crypto.randomUUID(),
+      id: networkId,
       name,
-      ...addressing,
+      ...details,
       position: position ?? null,
     }
     await savePlan({ ...plan, networks: [...plan.networks, created] })
@@ -114,6 +120,19 @@ export function NetworkDialog({
             </option>
           ))}
         </select>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor={subnetId + "-color"}>Network color</FieldLabel>
+        <div className="flex items-center gap-2">
+          <Input
+            id={subnetId + "-color"}
+            type="color"
+            value={color}
+            onChange={(event) => setColor(event.target.value)}
+            className="min-h-11 w-20 cursor-pointer p-1"
+          />
+          <span className="text-xs text-muted-foreground">{color}</span>
+        </div>
       </Field>
       <NetworkAllocationFields
         network={network}

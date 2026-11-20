@@ -9,6 +9,7 @@ import {
   FieldSet,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { NativeSelect } from "@/components/ui/native-select"
 import {
   etherNetIpDeviceClasses,
   modbusRoles,
@@ -23,8 +24,6 @@ import {
 
 const profileTypes = Object.keys(profileNames) as (keyof typeof profileNames)[]
 const ioRoles = Object.keys(profinetRoles) as ProfinetRole[]
-const selectClassName =
-  "min-h-11 min-w-0 border border-input bg-background px-2"
 
 export function ProtocolProfileFields({
   profiles = {},
@@ -55,9 +54,8 @@ export function ProtocolProfileFields({
             <FieldLabel htmlFor={`${id}-class`}>
               EtherNet/IP device class
             </FieldLabel>
-            <select
+            <NativeSelect
               id={`${id}-class`}
-              className={selectClassName}
               value={etherNetIp.deviceClass ?? ""}
               onChange={(event) =>
                 onChange({
@@ -75,7 +73,7 @@ export function ProtocolProfileFields({
                   {label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </Field>
         </ProfileFields>
       )}
@@ -139,9 +137,8 @@ export function ProtocolProfileFields({
           <FieldGroup className="gap-3 sm:grid sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor={`${id}-modbus-role`}>Modbus role</FieldLabel>
-              <select
+              <NativeSelect
                 id={`${id}-modbus-role`}
-                className={selectClassName}
                 value={modbusTcp.role ?? ""}
                 onChange={(event) =>
                   onChange({
@@ -160,7 +157,7 @@ export function ProtocolProfileFields({
                     {label}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </Field>
             <Field>
               <FieldLabel htmlFor={`${id}-modbus-port`}>
