@@ -2,14 +2,18 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Nami.Api.Plans;
 
-var app = NamiApplication.Build(args);
-app.Run();
+if (args is ["--setup", ..])
+    return DatabaseSetup.Run(args[1..]);
+
+NamiApplication.Build(args).Run();
+return 0;
 
 internal static class NamiApplication
 {
     public static WebApplication Build(string[] args, TimeProvider? timeProvider = null)
     {
         var builder = WebApplication.CreateBuilder(args);
+        DatabaseSetup.AddSavedSettings(builder);
         builder.Services.AddSingleton(timeProvider ?? TimeProvider.System);
         builder.Services.AddSingleton<EditorSessions>();
         builder.Services.AddSingleton(new PlanStore(builder.Configuration, builder.Environment.ContentRootPath));

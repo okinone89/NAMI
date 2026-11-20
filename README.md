@@ -37,7 +37,7 @@ Both modes listen on loopback at port 5080 by default. Use `-Urls http://127.0.0
 
 The launcher installs frontend dependencies as needed, builds the workspace, and starts the app and API together. Open [NAMI on localhost](http://127.0.0.1:5080). A fresh database shows **No plans yet**. Click **View mode** in the toolbar and enter `nami-local-editor`, the default passphrase for local development.
 
-Plans are saved in `src/Nami.Api/data/nami.db` and are available the next time you run the launcher. Press Ctrl+C to stop it. If port 5080 is busy, run `./run --dev --urls http://127.0.0.1:5082` and open port 5082 instead.
+By default, plans are saved in `src/Nami.Api/data/nami.db` and are available the next time you run the launcher. See [Database setup](#database-setup) to choose another SQLite file or PostgreSQL. Press Ctrl+C to stop NAMI. If port 5080 is busy, run `./run --dev --urls http://127.0.0.1:5082` and open port 5082 instead.
 
 ## Your first plan
 
@@ -127,6 +127,15 @@ Run `./run` on macOS or Linux, or `.\run.ps1` in Windows PowerShell, to start in
 
 An unlocked editor can change any plan. Click **Edit mode** in the toolbar to sign out. The session also ends after eight hours without plan API activity. Checking session status alone does not extend it. Run one API process per installation because sessions are held in memory. To rotate the passphrase, change the setting and restart the process. Editors must then unlock again.
 
+### Database setup
+
+Run `./run --setup` on macOS or Linux, or `.\run.ps1 -Setup` in Windows PowerShell. The launcher asks for the provider and target, shows the selection for confirmation, and applies the database migrations. Start or restart NAMI to use the selection.
+
+- **SQLite** accepts a path to an existing NAMI database or to a new file. Relative paths resolve against `src/Nami.Api`. NAMI creates missing parent directories for a new file. The service account needs write access to the directory and database.
+- **PostgreSQL** accepts the host, port, name of an existing database, username, and schema name. The schema defaults to `nami`. The login needs permission to use the schema and create or alter NAMI's tables, plus `CREATE` on the database if the schema needs to be created. If the database requires a password, make a PostgreSQL password file available to both setup and the running service, for example by setting `PGPASSFILE` to its path. A service secret store can also supply credentials to both processes. Setup saves only the connection details.
+
+Setup saves its selection in `src/Nami.Api/data/database-settings.json` after the migrations succeed. Explicit environment variables and command-line database settings take priority. Rerun setup to choose a different target.
+
 ### Database and recovery
 
 NAMI creates or upgrades its tables in a transaction at startup. A successful readiness check returns HTTP 200 and `{"status":"ready"}` at `/health`.
@@ -138,7 +147,7 @@ NAMI creates or upgrades its tables in a transaction at startup. A successful re
 
 Back up before upgrading. For SQLite, use the SQLite shell’s online backup command, for example `sqlite3 /var/lib/nami/nami.db ".backup '/backups/nami.db'"`. Stop NAMI before restoring the snapshot to a fresh file at the configured path. For PostgreSQL, use a managed snapshot or `pg_dump -Fc` and restore with `pg_restore` into an empty database. Restart NAMI and verify both readiness and the expected plans.
 
-Changing providers points NAMI at a different database. To move an individual plan, export its package from the source installation and import it into the destination.
+To move an individual plan between database targets, export its package from the source installation and import it into the destination.
 
 <details>
 <summary>First-release verification and cross-provider browser tests</summary>

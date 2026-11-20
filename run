@@ -8,6 +8,9 @@ else
   export ASPNETCORE_ENVIRONMENT=Production
 fi
 export DOTNET_ENVIRONMENT="$ASPNETCORE_ENVIRONMENT"
+if [ "${1:-}" = "--setup" ]; then
+  exec dotnet run --project src/Nami.Api --no-launch-profile -- "$@"
+fi
 if [ ! -x frontend/node_modules/.bin/vite ] || [ frontend/package-lock.json -nt frontend/node_modules/.package-lock.json ]; then
   npm --prefix frontend ci
 fi

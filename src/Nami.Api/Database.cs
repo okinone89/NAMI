@@ -29,7 +29,15 @@ internal static class Database
                 throw new InvalidOperationException("Set Database:Provider to SQLite or PostgreSQL.");
         }
 
-        database.Open();
-        return database;
+        try
+        {
+            database.Open();
+            return database;
+        }
+        catch
+        {
+            database.Dispose();
+            throw;
+        }
     }
 }

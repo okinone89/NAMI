@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param(
     [switch]$Dev,
+    [switch]$Setup,
     [string]$Urls = $env:ASPNETCORE_URLS
 )
 
@@ -14,6 +15,13 @@ $previousDotNetEnvironment = $env:DOTNET_ENVIRONMENT
 
 Push-Location -LiteralPath $PSScriptRoot
 try {
+    $env:ASPNETCORE_ENVIRONMENT = $environment
+    $env:DOTNET_ENVIRONMENT = $environment
+    if ($Setup) {
+        & dotnet run --project src/Nami.Api --configuration $configuration --no-launch-profile -- --setup
+        exit $LASTEXITCODE
+    }
+
     # npm.cmd works with Windows installations that also ship an npm.ps1 shim.
     $npm = if ($env:OS -eq 'Windows_NT') { 'npm.cmd' } else { 'npm' }
     $vite = if ($env:OS -eq 'Windows_NT') { 'vite.cmd' } else { 'vite' }
@@ -28,8 +36,6 @@ try {
     & $npm --prefix frontend run build -- --outDir ../src/Nami.Api/wwwroot --emptyOutDir
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    $env:ASPNETCORE_ENVIRONMENT = $environment
-    $env:DOTNET_ENVIRONMENT = $environment
     & dotnet run --project src/Nami.Api --configuration $configuration --no-launch-profile -- --urls $Urls
     exit $LASTEXITCODE
 }

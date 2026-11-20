@@ -18,7 +18,7 @@ internal static class Schema
         "ALTER TABLE plans ADD COLUMN inventory_undo TEXT"
     ];
 
-    public static void Upgrade(DbConnection database)
+    public static void Upgrade(DbConnection database, string? postgresSchema = null)
     {
         // SQLite begins an immediate write transaction. Serialize PostgreSQL startups too.
         using var transaction = database.BeginTransaction();
@@ -26,8 +26,10 @@ internal static class Schema
         command.Transaction = transaction;
         if (database is NpgsqlConnection)
         {
-            command.CommandText = $"SELECT pg_advisory_xact_lock({MigrationLockKey})";
+            command.CommandText = $"SELECT pg_catalog.pg_advisory_xact_lock({MigrationLockKey})";
             command.ExecuteNonQuery();
+            if (postgresSchema is not null)
+                EnsurePostgresSchema(command, postgresSchema);
         }
 
         command.CommandText = "CREATE TABLE IF NOT EXISTS nami_migrations (version INTEGER PRIMARY KEY)";
@@ -45,5 +47,27 @@ internal static class Schema
             command.ExecuteNonQuery();
         }
         transaction.Commit();
+    }
+
+    private static void EnsurePostgresSchema(DbCommand command, string schema)
+    {
+        command.CommandText = "SELECT EXISTS (SELECT FROM pg_catalog.pg_namespace WHERE nspname::text = @schema)";
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "schema";
+        parameter.Value = schema;
+        command.Parameters.Add(parameter);
+        var exists = (bool)command.ExecuteScalar()!;
+        command.Parameters.Clear();
+
+        if (!exists)
+        {
+            using var identifiers = new NpgsqlCommandBuilder();
+            command.CommandText = $"CREATE SCHEMA IF NOT EXISTS {identifiers.QuoteIdentifier(schema)}";
+            command.ExecuteNonQuery();
+        }
+
+        command.CommandText = "SELECT pg_catalog.current_schema()";
+        if (command.ExecuteScalar() as string != schema)
+            throw new InvalidOperationException("PostgreSQL could not select that schema. Check its name length and your schema permissions.");
     }
 }
