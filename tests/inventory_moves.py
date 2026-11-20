@@ -30,7 +30,7 @@ class InventoryMoves(unittest.TestCase):
         self.address = stack.enter_context(running_api(directory, settings))
         self.cookie = unlock(self.address)
         self.path, plan = inventory_plan(self.address, self.cookie)
-        plan["interfaces"].extend({**port(name), "id": name, "name": name} for name in ["P07", "P08", "P09"])
+        plan["interfaces"].extend({"componentId": "plc-b", "id": name, "name": name} for name in ["P07", "P08", "P09"])
         plan["links"] = [{"id": name, "source": port(name),
                           "target": {"componentId": "plc-a", "interfaceId": "lan-a"},
                           "medium": "fiberOptic", "protocol": "EtherCAT"} for name in partners]
@@ -128,6 +128,50 @@ class InventoryMoves(unittest.TestCase):
                 edited["interfaces"] = [p for p in edited["interfaces"] if p["id"] != "P08"]
                 self.put(edited)
                 self.assertEqual(self.post("undo", {"importId": removed["undo"]["importId"]})[0], 409)
+
+    def test_confirmed_rename_and_wiring_move_keep_the_original_records(self):
+        original = self.start(["P08"])
+        draft = {"rows": [{"rowNumber": 2, "componentName": "New controller", "interfaceName": "LAN A",
+                           "networkName": "Cell A", "ipv4": "192.168.1.10",
+                           "linkPartner": "Capper PLC", "partnerPort": "P09"}]}
+        pending = self.preview(draft)
+        self.assertEqual(pending["links"], [])
+        rename, = pending["decisions"]
+        choice, = [c for c in rename["choices"] if c["label"].startswith("Rename existing component")]
+        draft["answers"] = {rename["id"]: choice["id"]}
+        preview = self.preview(draft)
+        self.assertEqual(preview["links"][0]["summary"],
+                         "Move New controller / LAN A from Capper PLC / P08 to Capper PLC / P09")
+        saved = self.apply(draft)
+        self.assertEqual(saved["plan"]["components"][0], {**original["components"][0], "name": "New controller"})
+        self.assertEqual(saved["plan"]["links"], [{**original["links"][0], "source": port("P09")}])
+        status, undone = self.post("undo", {"importId": saved["undo"]["importId"]})
+        self.assertEqual(status, 200, undone)
+        self.assertEqual(undone, {**original, "revision": original["revision"] + 2})
+
+    def test_removal_distinguishes_parallel_links_between_the_same_ports(self):
+        plan = self.start(["P08"])
+        plan["links"].append({**plan["links"][0], "id": "spare", "protocol": "Modbus"})
+        original = self.put(plan)
+        row = {"rowNumber": 2, "interfaceId": "lan-a"}
+        choices = self.preview({"rows": [row]})["rows"][0]["connections"]
+        self.assertEqual(len({choice["label"] for choice in choices}), 2)
+        removed = self.apply({"rows": [{**row, "removeLinkIds": ["spare"]}]})
+        self.assertEqual(removed["plan"]["links"], [original["links"][0]])
+
+    def test_new_partner_since_preview_reopens_move_choice_without_writing_any_row(self):
+        original = self.start(["P08"])
+        draft = {"rows": [declares("P09", ipv4="192.168.1.19")]}
+        ready = self.preview(draft)
+        self.assertTrue(ready["canApply"])
+        original["links"].append({**original["links"][0], "id": "new-cable", "source": port("P07")})
+        latest = self.put(original)
+        status, refreshed = self.post("commit", {**draft, "stateToken": ready["stateToken"]})
+        self.assertEqual(status, 409)
+        self.assertFalse(refreshed["canApply"])
+        decision, = refreshed["decisions"]
+        self.assertCountEqual([choice["id"] for choice in decision["choices"]], ["move:P08", "move:new-cable", "add"])
+        self.assertEqual(request(self.address, self.path)[:2], (200, latest))
 
     def test_replacement_retains_the_link_and_its_metadata(self):
         original = self.start(["P08"])

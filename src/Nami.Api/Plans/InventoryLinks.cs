@@ -64,26 +64,23 @@ internal static partial class InventoryPreview
             group.Add(row);
         }
 
-        var removed = ResolveLinkRemovals(inventory, rows);
-        var removedIds = removed.Select(change => change.Before!.Id).ToHashSet();
-        var retained = inventory.Links.Where(link => !removedIds.Contains(link.Id)).ToArray();
-        var existing = retained.ToLookup(link => EndpointPair.Of(link.Source, link.Target));
-        foreach (var change in removed)
+        var preview = ResolveLinkRemovals(inventory, rows);
+        var removedIds = preview.Select(change => change.Before!.Id).ToHashSet();
+        foreach (var change in preview)
         {
             var removedLink = change.Before!;
             var pair = EndpointPair.Of(removedLink.Source, removedLink.Target);
-            if (!existing.Contains(pair))
+            if (wiring.Existing[pair].All(link => removedIds.Contains(link.Id)))
                 declarations.Remove(pair);
         }
         var moves = ResolveLinkMoves(inventory, wiring, removedIds, declarations, decisions, out var unresolved);
         var movedIds = moves.Values.Select(link => link.Id).ToHashSet();
         var usedIds = inventory.Links.Select(link => link.Id).ToHashSet();
-        var preview = removed.ToList();
         foreach (var (ends, group) in declarations)
         {
             if (unresolved.Contains(ends))
                 continue;
-            var before = existing[ends].ToArray();
+            var before = wiring.Existing[ends].Where(link => !removedIds.Contains(link.Id)).ToArray();
             if (before.Length > 1)
             {
                 foreach (var row in group)
