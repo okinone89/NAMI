@@ -4,6 +4,13 @@ import type {
 } from "@/lib/address-issues"
 import { PlanRequestError, type Plan } from "@/lib/plans"
 
+export const inventoryLinkFields = [
+  { key: "linkPartner", label: "Link partner" },
+  { key: "partnerPort", label: "Partner port" },
+  { key: "connectionType", label: "Connection type" },
+  { key: "linkProtocol", label: "Link protocol" },
+] as const
+
 export const inventoryCsvFields = [
   { key: "componentName", label: "Component" },
   { key: "interfaceName", label: "Interface" },
@@ -11,10 +18,7 @@ export const inventoryCsvFields = [
   { key: "networkName", label: "Network" },
   { key: "networkSubnet", label: "Network subnet" },
   { key: "ipv4", label: "IPv4" },
-  { key: "linkPartner", label: "Link partner" },
-  { key: "partnerPort", label: "Partner port" },
-  { key: "connectionType", label: "Connection type" },
-  { key: "linkProtocol", label: "Link protocol" },
+  ...inventoryLinkFields,
 ] as const
 
 const inventoryIdFields = [
@@ -34,6 +38,7 @@ export type InventoryImportRow = Partial<Record<InventoryField, string>> & {
   rowNumber: number
   clear?: InventoryClearField[]
   skip?: boolean
+  skipConnection?: boolean
 }
 export type InventoryPreviewRequest = {
   rows: InventoryImportRow[]
@@ -70,6 +75,7 @@ export type InventoryPreview = {
     title: string
     message: string
     rowNumbers: number[]
+    scope?: "connection" | null
     choices: { id: string; label: string }[]
   }[]
   rows: InventoryPreviewRow[]

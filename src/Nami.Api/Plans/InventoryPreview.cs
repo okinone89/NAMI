@@ -26,7 +26,8 @@ internal sealed record InventoryImportRow(
     string? LinkPartner = null,
     string? PartnerPort = null,
     string? ConnectionType = null,
-    string? LinkProtocol = null);
+    string? LinkProtocol = null,
+    bool SkipConnection = false);
 
 /// <summary>The stored or proposed inventory values for an interface.</summary>
 internal sealed record InventoryValues(

@@ -22,6 +22,7 @@ export type DecisionAnswer = {
 
 export const correctChoice = "edit:rows"
 export const skipChoice = "skip:rows"
+export const skipConnectionChoice = "skip:connection"
 const keepChoice = "keep:address"
 
 function errorTarget(
@@ -137,7 +138,9 @@ export function applyAnswer(
       ],
     }
   }
-  if (answer.choice === correctChoice || answer.choice === skipChoice) {
+  if (
+    [correctChoice, skipChoice, skipConnectionChoice].includes(answer.choice)
+  ) {
     const selected = new Set(decision.rowNumbers)
     return {
       ...request,
@@ -147,7 +150,9 @@ export function applyAnswer(
               ...row,
               ...(answer.choice === skipChoice
                 ? { skip: true }
-                : answer.edits?.[row.rowNumber]),
+                : answer.choice === skipConnectionChoice
+                  ? { skipConnection: true }
+                  : answer.edits?.[row.rowNumber]),
             }
           : row
       ),

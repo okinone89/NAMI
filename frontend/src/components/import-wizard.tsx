@@ -17,12 +17,14 @@ import {
   decisionKey,
   importDecisions,
   skipChoice,
+  skipConnectionChoice,
   type DecisionAnswer,
 } from "@/lib/import-decisions"
 import { FieldError } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
   inventoryCsvFields,
+  inventoryLinkFields,
   previewInventory,
   type InventoryImportRow,
   type InventoryPreviewRequest,
@@ -178,7 +180,9 @@ export function ImportWizard({
               {[
                 ...decision.choices,
                 { id: correctChoice, label: "Correct values" },
-                { id: skipChoice, label: "Skip affected rows" },
+                decision.scope === "connection"
+                  ? { id: skipConnectionChoice, label: "Skip connection" }
+                  : { id: skipChoice, label: "Skip affected rows" },
               ].map((choice) => (
                 <label
                   key={choice.id}
@@ -206,9 +210,11 @@ export function ImportWizard({
                   key={row.rowNumber}
                   row={row}
                   input={inputs.get(row.rowNumber)!}
+                  connection={decision.scope === "connection"}
                 >
                   {answer?.choice === correctChoice && (
                     <RowCorrection
+                      connection={decision.scope === "connection"}
                       input={{
                         ...inputs.get(row.rowNumber)!,
                         ...answer.edits?.[row.rowNumber],
@@ -249,6 +255,7 @@ export function ImportWizard({
                 {skipped.join(", ")}
               </p>
             )}
+            <SkippedConnections rows={review.preview.rows} inputs={inputs} />
             <details>
               <summary className="cursor-pointer py-2">Review rows</summary>
               {review.preview.rows.map((row) => (
@@ -310,37 +317,42 @@ export function ImportWizard({
 function RowCorrection({
   input,
   onEdit,
+  connection,
 }: {
+  connection: boolean
   input: InventoryImportRow
   onEdit: (changes: Partial<InventoryImportRow>) => void
 }) {
   return (
     <div className="grid gap-2 sm:grid-cols-2">
-      {inventoryCsvFields.map(({ key, label }) => (
-        <label key={key}>
-          {label}
-          <Input
-            value={input[key] ?? ""}
-            onChange={(event) => onEdit({ [key]: event.target.value })}
-          />
-        </label>
-      ))}
-      {(["network", "ipv4"] as const).map((field) => (
-        <label className="flex items-center gap-2" key={field}>
-          <input
-            type="checkbox"
-            checked={input.clear?.includes(field) ?? false}
-            onChange={(event) =>
-              onEdit({
-                clear: event.target.checked
-                  ? [...(input.clear ?? []), field]
-                  : input.clear?.filter((item) => item !== field),
-              })
-            }
-          />
-          {field === "ipv4" ? "Clear IPv4 value" : "Clear network value"}
-        </label>
-      ))}
+      {(connection ? inventoryLinkFields : inventoryCsvFields).map(
+        ({ key, label }) => (
+          <label key={key}>
+            {label}
+            <Input
+              value={input[key] ?? ""}
+              onChange={(event) => onEdit({ [key]: event.target.value })}
+            />
+          </label>
+        )
+      )}
+      {!connection &&
+        (["network", "ipv4"] as const).map((field) => (
+          <label className="flex items-center gap-2" key={field}>
+            <input
+              type="checkbox"
+              checked={input.clear?.includes(field) ?? false}
+              onChange={(event) =>
+                onEdit({
+                  clear: event.target.checked
+                    ? [...(input.clear ?? []), field]
+                    : input.clear?.filter((item) => item !== field),
+                })
+              }
+            />
+            {field === "ipv4" ? "Clear IPv4 value" : "Clear network value"}
+          </label>
+        ))}
     </div>
   )
 }
@@ -349,7 +361,9 @@ function RowDetails({
   row,
   input,
   children,
+  connection = false,
 }: {
+  connection?: boolean
   row: InventoryPreviewRow
   input: InventoryImportRow
   children?: ReactNode
@@ -394,17 +408,70 @@ function RowDetails({
       )}
       {row.errors.length > 0 && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-2">
-          {inventoryCsvFields
-            .filter(({ key }) => input[key])
-            .map(({ key, label }) => (
-              <div key={key} className="contents">
-                <dt>{label}</dt>
-                <dd>{input[key]}</dd>
-              </div>
-            ))}
+          {(connection
+            ? inventoryLinkFields
+            : inventoryCsvFields.filter(({ key }) => input[key])
+          ).map(({ key, label }) => (
+            <div key={key} className="contents">
+              <dt>{label}</dt>
+              <dd>{input[key] || "(blank)"}</dd>
+            </div>
+          ))}
         </dl>
       )}
       {children}
+    </section>
+  )
+}
+
+function SkippedConnections({
+  rows,
+  inputs,
+}: {
+  rows: InventoryPreviewRow[]
+  inputs: Map<number, InventoryImportRow>
+}) {
+  const groups = new Map<string, { label: string; rows: number[] }>()
+  for (const row of rows) {
+    const input = inputs.get(row.rowNumber)!
+    if (!input.skipConnection || row.match === "skipped") continue
+    const ends = [
+      [
+        row.after?.componentName || input.componentName,
+        row.after?.interfaceName || input.interfaceName,
+      ],
+      [input.linkPartner, input.partnerPort],
+    ]
+    const key = JSON.stringify(
+      ends
+        .map((end) =>
+          JSON.stringify(end.map((value) => value?.trim().toLowerCase() ?? ""))
+        )
+        .sort()
+    )
+    const group = groups.get(key) ?? {
+      label: ends
+        .map(([owner, port]) =>
+          [owner || "(missing partner)", port].filter(Boolean).join(" / ")
+        )
+        .join(" ↔ "),
+      rows: [],
+    }
+    group.rows.push(row.rowNumber)
+    groups.set(key, group)
+  }
+  if (!groups.size) return null
+  return (
+    <section>
+      <h4 className="font-medium">Skipped connections</h4>
+      <ul aria-label="Skipped connections" className="list-disc pl-5">
+        {[...groups].map(([key, group]) => (
+          <li key={key}>
+            {group.label} ({group.rows.length === 1 ? "Row" : "Rows"}{" "}
+            {group.rows.join(", ")})
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

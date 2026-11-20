@@ -89,11 +89,11 @@ internal static partial class InventoryPreview
     }
 
     private static void RequireCorrection(InventoryDecisions decisions, IEnumerable<Candidate> rows,
-        string code, string scope, string title, string message)
+        string code, string scope, string title, string message, string? decisionScope = null)
     {
         foreach (var row in rows)
         {
-            decisions.Choose(code, scope, message, title, message, row.Input.RowNumber, []);
+            decisions.Choose(code, scope, message, title, message, row.Input.RowNumber, [], decisionScope);
             row.Fail(code, message);
         }
     }

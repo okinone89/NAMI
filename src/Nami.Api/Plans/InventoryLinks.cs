@@ -24,19 +24,22 @@ internal static partial class InventoryPreview
         var declarations = new Dictionary<EndpointPair, List<Candidate>>();
         foreach (var row in rows)
         {
+            if (row.Input.SkipConnection)
+                continue;
+
             var partnerName = NonBlank(row.Input.LinkPartner);
             var portName = NonBlank(row.Input.PartnerPort);
             if (partnerName is null)
             {
                 if (portName is not null)
-                    row.Fail("missingLinkPartner", $"Provide the link partner for port '{portName}'.");
+                    RequirePartnerCorrection(decisions, row, "missingLinkPartner", "Supply the component name in Link partner for this port.");
                 continue;
             }
 
             var matches = components[partnerName].ToArray();
             if (matches.Length == 0)
             {
-                row.Fail("unknownLinkPartner", $"Link partner '{partnerName}' must identify one selected or existing component.");
+                RequirePartnerCorrection(decisions, row, "unknownLinkPartner", "The supplied Link partner does not match a selected or existing component.");
                 continue;
             }
             var owner = matches.Length == 1 ? matches[0] : ChooseComponent(matches, index, row, decisions);
@@ -48,7 +51,7 @@ internal static partial class InventoryPreview
                 var matchedPorts = ports[partner.ComponentId].Where(port => Names.Equals(port.Name, portName)).ToArray();
                 if (matchedPorts.Length == 0)
                 {
-                    row.Fail("unknownPartnerPort", $"Partner port '{partnerName} / {portName}' must identify one selected or existing interface.");
+                    RequirePartnerCorrection(decisions, row, "unknownPartnerPort", "The supplied Partner port does not match an interface on the link partner.");
                     continue;
                 }
                 var port = matchedPorts.Length == 1 ? matchedPorts[0] : ChooseInterface(matchedPorts, owner, index, row, decisions);
@@ -82,8 +85,10 @@ internal static partial class InventoryPreview
                 .Distinct(StringComparer.Ordinal).ToArray();
             if (media.Contains(null) || media.Length > 1 || protocols.Length > 1 || (link is null && media.Length == 0))
             {
-                foreach (var row in group)
-                    row.Fail("linkMetadata", "Specify one consistent connection type (Wired, FO, Wireless, or Virtual) and link protocol for this connection.");
+                var message = link is null && media.Length == 0
+                    ? "Supply a connection type for the new link (Wired, FO, Wireless, or Virtual)."
+                    : "Use one connection type (Wired, FO, Wireless, or Virtual) and one link protocol across these declarations.";
+                RequireCorrection(decisions, group, "linkMetadata", Hash(ends), "Review connection details", message, "connection");
                 continue;
             }
 
@@ -95,6 +100,18 @@ internal static partial class InventoryPreview
             preview.Add(new(link, after, group.Select(row => row.Input.RowNumber).Order().ToArray()));
         }
         return preview;
+    }
+
+    private static void RequirePartnerCorrection(InventoryDecisions decisions, Candidate row, string code, string message)
+    {
+        var connection = Hash(new
+        {
+            row.Component!.Id, row.TargetInterfaceId,
+            Partner = NonBlank(row.Input.LinkPartner)?.ToUpperInvariant(),
+            Port = NonBlank(row.Input.PartnerPort)?.ToUpperInvariant()
+        });
+        decisions.Choose(code, connection, "", "Review link partner", message, row.Input.RowNumber, [], "connection");
+        row.Fail(code, message);
     }
 
     private static LinkMedium? ParseMedium(string value) => value.ToUpperInvariant() switch

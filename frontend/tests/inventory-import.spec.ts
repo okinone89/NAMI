@@ -373,3 +373,90 @@ test("correcting a network-only subnet shows both network values and restores th
     })
     .toBeNull()
 })
+
+test("reciprocal metadata shares a decision and skipping the connection keeps the inventory", async ({
+  page,
+}) => {
+  const path = "/api/plans/" + (await openInventory(page))
+  const dialog = await previewRows(
+    page,
+    'Capper PLC,LAN B,,,,192.168.1.52,"Filler, ""Line A""",LAN A,Wired,EtherCAT',
+    '"Filler, ""Line A""",LAN A,,,,,Capper PLC,LAN B,FO,PROFINET'
+  )
+  await expect(dialog.getByText("Decision 1 of 1")).toBeVisible()
+  for (const [number, medium, protocol] of [
+    [2, "Wired", "EtherCAT"],
+    [3, "FO", "PROFINET"],
+  ] as const) {
+    const row = dialog.getByRole("region", { name: "Row " + number })
+    await expect(
+      row.getByText("Connection type", { exact: true })
+    ).toBeVisible()
+    await expect(row.getByText(medium, { exact: true })).toBeVisible()
+    await expect(row.getByText("Link protocol", { exact: true })).toBeVisible()
+    await expect(row.getByText(protocol, { exact: true })).toBeVisible()
+  }
+  await expect(
+    dialog.getByRole("radio", { name: "Skip affected rows" })
+  ).toHaveCount(0)
+  await dialog.getByRole("radio", { name: "Skip connection" }).check()
+  await dialog.getByRole("button", { name: "Next" }).click()
+  const skipped = dialog.getByRole("list", { name: "Skipped connections" })
+  await expect(skipped.getByRole("listitem")).toHaveCount(1)
+  await expect(skipped).toContainText("Rows 2, 3")
+  await expect(skipped).toContainText("Capper PLC / LAN B")
+  await expect(skipped).toContainText('Filler, "Line A" / LAN A')
+  await dialog.getByRole("button", { name: "Apply import" }).click()
+  await expect(dialog).toBeHidden()
+  const saved: Plan = await (await page.request.get(path)).json()
+  expect(saved.links).toEqual([])
+  expect(saved.interfaces.find((port) => port.id === "port-b")?.ipv4).toBe(
+    "192.168.1.52"
+  )
+})
+
+test("correcting the partner and port to a later CSV row revalidates the connection and its required type", async ({
+  page,
+}) => {
+  const path = "/api/plans/" + (await openInventory(page))
+  const dialog = await previewRows(
+    page,
+    "Capper PLC,LAN B,,,,192.168.1.55,Late swith,P11,,",
+    "Late switch,P1,Switch,,,,,,,"
+  )
+  const row = dialog.getByRole("region", { name: "Row 2" })
+  const next = dialog.getByRole("button", { name: "Next" })
+  const correct = dialog.getByRole("radio", { name: "Correct values" })
+  await expect(row.getByText("Late swith")).toBeVisible()
+  await expect(row.getByText("P11")).toBeVisible()
+  await correct.check()
+  await row.getByRole("textbox", { name: "Link partner" }).fill("Late switch")
+  await next.click()
+  await expect(dialog.getByText(/Partner port does not match/)).toBeVisible()
+  await correct.check()
+  await row.getByRole("textbox", { name: "Partner port" }).fill("P1")
+  await next.click()
+  await expect(dialog.getByText(/Supply a connection type/)).toBeVisible()
+  await correct.check()
+  await row.getByRole("textbox", { name: "Connection type" }).fill("FO")
+  await next.click()
+  await expect(
+    dialog.getByRole("heading", { name: "Import summary" })
+  ).toBeVisible()
+  await dialog.getByRole("button", { name: "Apply import" }).click()
+  await expect(dialog).toBeHidden()
+  const saved: Plan = await (await page.request.get(path)).json()
+  const partner = saved.components.find((c) => c.name === "Late switch")!
+  const port = saved.interfaces.find(
+    (p) => p.name === "P1" && p.componentId === partner.id
+  )!
+  expect(saved.links).toHaveLength(1)
+  const link = saved.links[0]
+  expect(link.medium).toBe("fiberOptic")
+  expect([link.source, link.target]).toEqual(
+    expect.arrayContaining([
+      { componentId: "plc-b", interfaceId: "port-b" },
+      { componentId: partner.id, interfaceId: port.id },
+    ])
+  )
+})
