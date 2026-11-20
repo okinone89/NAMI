@@ -31,6 +31,49 @@ def inventory_plan(address, cookie):
 
 
 class InventoryImport(unittest.TestCase):
+    def test_unchanged_and_skipped_commits_preserve_the_plan_and_last_import(self):
+        for provider in ("SQLite", "PostgreSQL"):
+            with self.subTest(provider=provider), TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                database = postgres_settings(directory) if provider == "PostgreSQL" else nullcontext({})
+                with database as settings, running_api(directory, {**settings_for(directory), **settings}) as address:
+                    cookie = unlock(address)
+                    path, original = inventory_plan(address, cookie)
+                    inventory = path + "/inventory"
+
+                    def preview(rows):
+                        status, result, _ = request(address, inventory + "/preview", "POST", {"rows": rows}, cookie)
+                        self.assertEqual(status, 200)
+                        return result
+
+                    def commit(rows, token):
+                        return request(address, inventory + "/commit", "POST", {"rows": rows, "stateToken": token}, cookie)[:2]
+
+                    def verify_no_writes(plan, expected_undo):
+                        for row in ({"ipv4": plan["interfaces"][0]["ipv4"]}, {"ipv4": "192.168.1.99", "skip": True}):
+                            rows = [{"rowNumber": 2, "interfaceId": "lan-a", **row}]
+                            result = preview(rows)
+                            self.assertFalse(result["canApply"])
+                            self.assertEqual(result["decisions"], [])
+                            self.assertEqual(result["rows"][0]["errors"], [])
+                            self.assertEqual(commit(rows, result["stateToken"]), (409, result))
+                            self.assertEqual(request(address, path)[:2], (200, plan))
+                            self.assertEqual(request(address, inventory + "/undo")[:2], expected_undo)
+
+                    verify_no_writes(original, (204, None))
+                    change = [{"rowNumber": 2, "interfaceId": "lan-a", "ipv4": "192.168.1.44"}]
+                    token = preview(change)["stateToken"]
+                    status, committed = commit(change, token)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(committed["plan"]["interfaces"][0]["ipv4"], "192.168.1.44")
+                    # Retrying the original confirmation refreshes the preview to the saved state.
+                    self.assertEqual(commit(change, token), (409, preview(change)))
+                    verify_no_writes(committed["plan"], (200, committed["undo"]))
+                    status, restored, _ = request(address, inventory + "/undo", "POST",
+                                                  {"importId": committed["undo"]["importId"]}, cookie)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(restored["interfaces"], original["interfaces"])
+
     def test_commits_selected_changes_and_additions_together_on_both_providers(self):
         for provider in ("SQLite", "PostgreSQL"):
             with self.subTest(provider=provider), TemporaryDirectory() as tmp:
