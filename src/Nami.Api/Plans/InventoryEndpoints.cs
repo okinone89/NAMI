@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Nami.Api.Plans;
@@ -108,12 +109,17 @@ internal static class InventoryEndpoints
     }
 
     private static async Task<Results<FileContentHttpResult, ProblemHttpResult>> Export(
-        string id, PlanStore store, CancellationToken cancellationToken)
+        string id, PlanStore store, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         var plan = await store.GetAsync(id, cancellationToken);
-        return plan is null
-            ? TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "Plan not found")
-            : TypedResults.File(InventoryCsv.Export(plan), "text/csv; charset=utf-8", "inventory.csv");
+        if (plan is null)
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "Plan not found");
+
+        const string invalidFilenameCharacters = "<>:\"/\\|?*";
+        var name = string.Concat(plan.Name.Trim().Select(character =>
+            char.IsControl(character) || invalidFilenameCharacters.Contains(character) ? '_' : character));
+        var timestamp = timeProvider.GetUtcNow().ToString("yyyy-MM-dd_HH-mm-ss'Z'", CultureInfo.InvariantCulture);
+        return TypedResults.File(InventoryCsv.Export(plan), "text/csv; charset=utf-8", $"{name}_export_{timestamp}.csv");
     }
 }
 

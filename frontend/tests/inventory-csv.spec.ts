@@ -79,7 +79,7 @@ test("legacy files and incomplete pasted headers explain where to get the curren
 test("exported equipment imports into an empty plan and matches reordered pasted rows by name", async ({
   page,
 }) => {
-  const source = await createPlan(page, "Line A")
+  const source = await createPlan(page, "Línea A / West")
   const target = await createPlan(page, "Line B")
   const components = [
     {
@@ -106,20 +106,25 @@ test("exported equipment imports into an empty plan and matches reordered pasted
     ).ok()
   ).toBe(true)
 
-  async function exportFile() {
+  async function exportFile(planName: string) {
     const download = page.waitForEvent("download")
     await workspaceAction(page, "Export inventory CSV")
-    return (await download).path()
+    const file = await download
+    expect(file.suggestedFilename().slice(0, planName.length)).toBe(planName)
+    expect(file.suggestedFilename().slice(planName.length)).toMatch(
+      /^_export_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}Z\.csv$/
+    )
+    return file.path()
   }
 
   await page.goto(`/?plan=${source.id}`)
-  const file = await exportFile()
+  const file = await exportFile("Línea A _ West")
   const dialog = await openImport(page, target)
   await dialog.getByLabel("CSV file").setInputFiles(file)
   await dialog.getByRole("button", { name: "Preview import" }).click()
   await dialog.getByRole("button", { name: "Apply import" }).click()
   await expect(dialog).toBeHidden()
-  expect(await readFile(await exportFile(), "utf8")).toEqual(
+  expect(await readFile(await exportFile("Line B"), "utf8")).toEqual(
     await readFile(file, "utf8")
   )
   const path = "/api/plans/" + target.id

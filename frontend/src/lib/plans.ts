@@ -173,22 +173,30 @@ export async function savePlan(
 function requestAllocation(
   id: string,
   action: "preview" | "commit",
-  data: object
+  data: object,
+  signal?: AbortSignal
 ) {
   return fetch(`${planPath(id)}/address-allocation/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
+    signal,
   })
 }
 
 export async function previewAddressAllocation(
   id: string,
   interfaceIds: string[],
-  draftInterfaces?: Pick<PlanInterface, "id" | "networkId" | "ipv4">[]
+  draftInterfaces?: Pick<PlanInterface, "id" | "networkId" | "ipv4">[],
+  signal?: AbortSignal
 ) {
   return readResponse<AddressAllocationPreview>(
-    await requestAllocation(id, "preview", { interfaceIds, draftInterfaces })
+    await requestAllocation(
+      id,
+      "preview",
+      { interfaceIds, draftInterfaces },
+      signal
+    )
   )
 }
 

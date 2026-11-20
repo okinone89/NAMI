@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 export const sessionUrl = "/api/editor-session"
-type EditorSession = { canEdit: boolean; expiresAt: string | null }
+export type EditorSession = { canEdit: boolean; expiresAt: string | null }
 export const readOnly: EditorSession = { canEdit: false, expiresAt: null }
 
 export function useEditorSession() {

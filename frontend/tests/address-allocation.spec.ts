@@ -91,7 +91,6 @@ test("a saved pool skips assigned, reserved, and excluded IPv4 addresses", async
   })
   await suggest.click()
   const suggestion = page.getByRole("dialog", { name: "Suggest IPv4 address" })
-  await suggestion.getByRole("button", { name: "Preview suggestion" }).click()
   await expect(
     suggestion.getByText("192.168.1.30", { exact: true })
   ).toBeVisible()
@@ -130,7 +129,6 @@ test("suggest an IPv4 address for a draft interface without saving the component
   ).toBe(await name.evaluate((input) => input.getBoundingClientRect().height))
   await port.getByRole("button", { name: "Suggest IPv4" }).click()
   const suggestion = page.getByRole("dialog", { name: "Suggest IPv4 address" })
-  await suggestion.getByRole("button", { name: "Preview suggestion" }).click()
   await expect(
     suggestion.getByText("192.168.1.2", { exact: true })
   ).toBeVisible()
@@ -379,17 +377,15 @@ for (const step of ["preview", "commit"]) {
     const suggest = page.getByRole("button", {
       name: "Suggest IPv4 address for Filler PLC / LAN B",
     })
-    await suggest.click()
     const dialog = page.getByRole("dialog", { name: "Suggest IPv4 address" })
-    const preview = dialog.getByRole("button", { name: "Preview suggestion" })
     const confirm = dialog.getByRole("button", { name: "Accept suggestion" })
     if (step === "commit") {
-      await preview.click()
+      await suggest.click()
       await expect(confirm).toBeVisible()
     }
 
     await page.context().clearCookies()
-    await (step === "preview" ? preview : confirm).click()
+    await (step === "preview" ? suggest : confirm).click()
     await expect(dialog).toBeHidden()
     await expect(suggest).toHaveCount(0)
     await expectReadOnly(page)

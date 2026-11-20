@@ -1,5 +1,5 @@
 import { IconCheck, IconEye, IconPencil, IconX } from "@tabler/icons-react"
-import { useState } from "react"
+import { useEffect, useEffectEvent, useState } from "react"
 import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
 import {
@@ -43,7 +43,7 @@ export function AddressAllocationDialog({
   )
   const [preview, setPreview] = useState<AddressAllocationPreview>()
   const [notice, setNotice] = useState("")
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState(Boolean(interfaceId))
   const [failure, setFailure] = useState<unknown>()
   const components = new Map(plan.components.map(({ id, name }) => [id, name]))
   const networks = new Map(plan.networks.map(({ id, name }) => [id, name]))
@@ -63,21 +63,37 @@ export function AddressAllocationDialog({
     )
   }
 
-  async function requestPreview() {
+  function requestPreview(signal?: AbortSignal) {
+    void withEditorAccess(
+      previewAddressAllocation(plan.id, selected, draftInterfaces, signal)
+    )
+      .then((result) => {
+        if (!signal?.aborted) setPreview(result)
+      })
+      .catch((error: unknown) => {
+        if (!signal?.aborted) setFailure(error)
+      })
+      .finally(() => {
+        if (!signal?.aborted) setBusy(false)
+      })
+  }
+
+  function previewSelection() {
     setBusy(true)
     setFailure(undefined)
-    try {
-      setPreview(
-        await withEditorAccess(
-          previewAddressAllocation(plan.id, selected, draftInterfaces)
-        )
-      )
-    } catch (error) {
-      setFailure(error)
-    } finally {
-      setBusy(false)
-    }
+    requestPreview()
   }
+
+  const loadSuggestion = useEffectEvent((signal: AbortSignal) => {
+    requestPreview(signal)
+  })
+
+  useEffect(() => {
+    if (!interfaceId) return
+    const request = new AbortController()
+    loadSuggestion(request.signal)
+    return () => request.abort()
+  }, [interfaceId, plan.id])
 
   async function confirm() {
     if (!preview?.canApply) return
@@ -163,7 +179,10 @@ export function AddressAllocationDialog({
             </dl>
           </div>
         ) : interfaceId ? (
-          <p>{label(interfaceId, ports.get(interfaceId)?.networkId)}</p>
+          <div>
+            <p>{label(interfaceId, ports.get(interfaceId)?.networkId)}</p>
+            {busy && <p role="status">Looking up an available IPv4 address…</p>}
+          </div>
         ) : (
           <fieldset className="min-w-0" disabled={busy}>
             <legend className="mb-2 font-medium">
@@ -236,16 +255,16 @@ export function AddressAllocationDialog({
                 {interfaceId ? "Accept suggestion" : "Assign addresses"}
               </Button>
             </>
-          ) : (
+          ) : !interfaceId ? (
             <Button
               className="min-h-11"
               disabled={busy || !selected.length}
-              onClick={() => void requestPreview()}
+              onClick={previewSelection}
             >
-              <IconEye aria-hidden="true" data-icon="inline-start" />{" "}
-              {interfaceId ? "Preview suggestion" : "Preview assignment"}
+              <IconEye aria-hidden="true" data-icon="inline-start" /> Preview
+              assignment
             </Button>
-          )}
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>

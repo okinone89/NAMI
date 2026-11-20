@@ -16,7 +16,7 @@ import {
   IconTable,
 } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
-import { WorkspaceMenu } from "@/components/editor-session"
+import { EditorUnlockDialog, WorkspaceMenu } from "@/components/editor-session"
 import { useEditorSession } from "@/hooks/use-editor-session"
 import { usePlanWorkspace } from "@/hooks/use-plan-workspace"
 import { PlanNameDialog } from "@/components/plan-name-dialog"
@@ -67,7 +67,7 @@ type ComponentSelection = {
   initialType?: string
   position?: DiagramPosition
   onMove?: () => void
-  onPlaced?: (componentId: string) => void
+  onAdded?: () => void
 }
 
 export default function App() {
@@ -123,7 +123,13 @@ export default function App() {
     }
   }
 
-  const [creating, setCreating] = useState(false)
+  const [workspaceDialog, setWorkspaceDialog] = useState<
+    "unlock" | "unlock-to-create" | "create"
+  >()
+  function startCreatingPlan() {
+    setWorkspaceDialog(editorSession.canEdit ? "create" : "unlock-to-create")
+  }
+
   const [selection, setSelection] = useState<ComponentSelection>()
   const activeSelection = selection?.planId === plan?.id ? selection : undefined
   const selectedComponent = plan?.components.find(
@@ -136,7 +142,7 @@ export default function App() {
     componentId: string | null,
     options?: Pick<
       ComponentSelection,
-      "initialType" | "position" | "onMove" | "onPlaced"
+      "initialType" | "position" | "onMove" | "onAdded"
     >
   ) {
     if (plan) setSelection({ planId: plan.id, componentId, ...options })
@@ -146,22 +152,18 @@ export default function App() {
     next,
     keepAddressConflicts
   ) => {
-    const position = activeSelection?.position
-    if (!plan || !addingComponent || !position)
-      return workspace.savePlan(next, keepAddressConflicts)
-
-    const existing = new Set(plan.components.map(({ id }) => id))
-    await workspace.savePlan(
-      {
+    const position = addingComponent && activeSelection?.position
+    if (plan && position) {
+      const existing = new Set(plan.components.map(({ id }) => id))
+      next = {
         ...next,
         components: next.components.map((component) =>
           existing.has(component.id) ? component : { ...component, position }
         ),
-      },
-      keepAddressConflicts
-    )
-    const placed = next.components.find(({ id }) => !existing.has(id))
-    if (placed) activeSelection?.onPlaced?.(placed.id)
+      }
+    }
+    await workspace.savePlan(next, keepAddressConflicts)
+    if (addingComponent) activeSelection?.onAdded?.()
   }
 
   const { icon: ViewIcon, heading, component: ActiveView } = views[view]
@@ -173,7 +175,10 @@ export default function App() {
         <span className="hidden border-l pl-3 text-xs sm:inline">
           Network workspace
         </span>
-        <WorkspaceMenu session={editorSession}>
+        <WorkspaceMenu
+          session={editorSession}
+          onUnlock={() => setWorkspaceDialog("unlock")}
+        >
           <DropdownMenuGroup>
             {!!plans?.length && (
               <DropdownMenuSub>
@@ -195,7 +200,7 @@ export default function App() {
               </DropdownMenuSub>
             )}
             {editorSession.canEdit && plans && (
-              <DropdownMenuItem onClick={() => setCreating(true)}>
+              <DropdownMenuItem onClick={startCreatingPlan}>
                 <IconFolderPlus aria-hidden="true" /> New plan
               </DropdownMenuItem>
             )}
@@ -362,14 +367,22 @@ export default function App() {
           </div>
           {editorSession.canEdit &&
             automaticIpAssignment &&
-            workspace.unassignedCount && (
+            workspace.allocationNotice && (
               <p role="status" className="border-b px-4 py-2 text-xs">
                 The network allocation pool ran out of addresses.{" "}
-                {workspace.unassignedCount}{" "}
-                {workspace.unassignedCount === 1
+                {workspace.allocationNotice.count}{" "}
+                {workspace.allocationNotice.count === 1
                   ? "interface was"
                   : "interfaces were"}{" "}
                 saved without IPv4.
+                <span>
+                  {" "}
+                  Affected{" "}
+                  {workspace.allocationNotice.networks.length === 1
+                    ? "network"
+                    : "networks"}{" "}
+                  {workspace.allocationNotice.networks.join(", ")}.
+                </span>
               </p>
             )}
           {plan && !failed ? (
@@ -386,10 +399,7 @@ export default function App() {
               onSelectComponent={(componentId, onMove) =>
                 selectComponent(componentId, { onMove })
               }
-              onAddComponent={() => selectComponent(null)}
-              onPlaceComponent={(position, onPlaced, initialType) =>
-                selectComponent(null, { position, onPlaced, initialType })
-              }
+              onAddComponent={(options) => selectComponent(null, options)}
             />
           ) : (
             <div className="grid min-h-[50svh] place-items-center px-5 text-center">
@@ -400,9 +410,16 @@ export default function App() {
               ) : loading ? (
                 <p role="status">Loading plan…</p>
               ) : (
-                <h3 className="bg-background p-5 text-lg font-medium">
-                  No plans yet
-                </h3>
+                <div className="flex flex-col items-center gap-4 py-5">
+                  <h3 className="text-lg font-medium">No plans yet</h3>
+                  <Button className="min-h-11" onClick={startCreatingPlan}>
+                    <IconFolderPlus
+                      aria-hidden="true"
+                      data-icon="inline-start"
+                    />
+                    Create plan
+                  </Button>
+                </div>
               )}
             </div>
           )}
@@ -473,13 +490,25 @@ export default function App() {
           }}
         />
       )}
-      {creating && editorSession.canEdit && (
+      {(workspaceDialog === "unlock" ||
+        workspaceDialog === "unlock-to-create") && (
+        <EditorUnlockDialog
+          onClose={() => setWorkspaceDialog(undefined)}
+          onUnlocked={(session) => {
+            editorSession.apply(session)
+            setWorkspaceDialog(
+              workspaceDialog === "unlock-to-create" ? "create" : undefined
+            )
+          }}
+        />
+      )}
+      {workspaceDialog === "create" && editorSession.canEdit && (
         <PlanNameDialog
           title="New plan"
           label="Plan name"
           action="Create plan"
           onSave={workspace.addPlan}
-          onClose={() => setCreating(false)}
+          onClose={() => setWorkspaceDialog(undefined)}
         />
       )}
     </>

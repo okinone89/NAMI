@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase, workspaceAction } from "./workspace-settings"
+import {
+  editorPassphrase,
+  signOut,
+  unlockEditing,
+  workspaceAction,
+} from "./workspace-settings"
 
 const destinationOrigin = process.env.NAMI_TEST_TRANSFER_DESTINATION
 
@@ -92,10 +97,7 @@ test("download a plan and reopen an imported copy with its diagram and interface
   if (destinationOrigin) {
     await page.context().clearCookies()
     await page.goto(destinationOrigin)
-    await workspaceAction(page, "Unlock editing")
-    const unlock = page.getByRole("dialog", { name: "Unlock editing" })
-    await unlock.getByLabel("Shared editor passphrase").fill(editorPassphrase)
-    await unlock.getByRole("button", { name: "Unlock editing" }).click()
+    await unlockEditing(page)
     await workspaceAction(page, "New plan")
     const create = page.getByRole("dialog", { name: "New plan" })
     await create.getByLabel("Plan name").fill(name)
@@ -140,7 +142,7 @@ test("download a plan and reopen an imported copy with its diagram and interface
   await page.keyboard.press("Escape")
   await page.keyboard.press("Escape")
 
-  await workspaceAction(page, "Sign out")
+  await signOut(page)
   await page.reload()
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
   expect(selectedId()).not.toBe(existingId)

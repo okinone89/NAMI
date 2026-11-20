@@ -1,9 +1,7 @@
-import { workspaceAction, expectReadOnly } from "./workspace-settings"
+import { expectReadOnly } from "./workspace-settings"
 import { expect, test } from "@playwright/test"
 
-test("unlock editing and sign out without leaving the current plan view", async ({
-  page,
-}) => {
+test("describe and run the mode badge actions", async ({ page, hasTouch }) => {
   let canEdit = false
   await page.route("**/api/editor-session", async (route) => {
     const method = route.request().method()
@@ -30,8 +28,39 @@ test("unlock editing and sign out without leaving the current plan view", async 
   })
 
   await page.goto("/")
+  const toolbar = page.getByRole("banner")
+  const viewMode = toolbar.getByRole("button", { name: "View mode" })
+  const editMode = toolbar.getByRole("button", { name: "Edit mode" })
+  const workspace = toolbar.getByRole("button", {
+    name: "Workspace",
+    exact: true,
+  })
+  const menu = page.getByRole("menu", { name: "Workspace", exact: true })
+  const tooltip = page.getByRole("tooltip")
+  const workspaceHeight = (await workspace.boundingBox())!.height
+
+  async function expectMenuWithoutSessionActions() {
+    await workspace.click()
+    await expect(menu).toBeVisible()
+    await expect(
+      menu.getByRole("menuitem", { name: /^(Unlock editing|Sign out)$/ })
+    ).toHaveCount(0)
+    await menu.press("Escape")
+    await expect(menu).toBeHidden()
+  }
+
   await page.getByRole("button", { name: "Table" }).click()
-  await workspaceAction(page, "Unlock editing")
+  expect((await viewMode.boundingBox())!.height).toBe(workspaceHeight)
+  await expectMenuWithoutSessionActions()
+  await workspace.focus()
+  await page.keyboard.press("Shift+Tab")
+  await expect(viewMode).toBeFocused()
+  await expect(tooltip).toHaveText("Unlock editing")
+  await expect(viewMode).toHaveAccessibleDescription("Unlock editing")
+  await page.keyboard.press("Escape")
+  await expect(tooltip).toBeHidden()
+
+  await viewMode.click()
   const dialog = page.getByRole("dialog", { name: "Unlock editing" })
   await expect(dialog).toBeVisible()
   const bounds = await dialog.boundingBox()
@@ -48,14 +77,24 @@ test("unlock editing and sign out without leaving the current plan view", async 
   await passphrase.fill("workshop phrase")
   await dialog.getByRole("button", { name: "Unlock editing" }).click()
   await expect(dialog).toBeHidden()
-  await expect(page.getByText("Editing unlocked")).toBeVisible()
+  await expect(editMode).toBeVisible()
+  expect((await editMode.boundingBox())!.height).toBe(workspaceHeight)
+  await expectMenuWithoutSessionActions()
   await expect(
     page.getByRole("heading", { name: "Interface table" })
   ).toBeVisible()
 
-  await workspaceAction(page, "Sign out")
-  await expectReadOnly(page)
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeHidden()
+  if (hasTouch) {
+    await workspace.focus()
+    await page.keyboard.press("Shift+Tab")
+  } else {
+    await editMode.hover()
+  }
+  await expect(tooltip).toHaveText("Sign out")
+  await expect(editMode).toHaveAccessibleDescription("Sign out")
+  await editMode.click()
+  await expect(viewMode).toBeVisible()
+  await expect(tooltip).toBeHidden()
   await expect(
     page.getByRole("heading", { name: "Interface table" })
   ).toBeVisible()
@@ -79,8 +118,9 @@ test("idle expiry returns the current plan to read-only browsing", async ({
     })
   )
   await page.goto("/")
+  const toolbar = page.getByRole("banner")
   await page.getByRole("button", { name: "Table" }).click()
-  await expect(page.getByText("Editing unlocked")).toBeVisible()
+  await expect(toolbar.getByRole("button", { name: "Edit mode" })).toBeVisible()
 
   expired = true
   await page.clock.fastForward(idleTime)

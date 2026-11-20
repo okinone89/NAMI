@@ -4,11 +4,7 @@ import {
   createBaselinePlan,
   sharedMachineAddress,
 } from "./fixtures/baseline-plan"
-import {
-  editorPassphrase,
-  workspaceAction,
-  expectReadOnly,
-} from "./workspace-settings"
+import { expectReadOnly, signOut, unlockEditing } from "./workspace-settings"
 
 test("browse isolated PLCs and keep, reopen, and resolve a baseline address conflict", async ({
   page,
@@ -57,11 +53,7 @@ test("browse isolated PLCs and keep, reopen, and resolve a baseline address conf
   await plc.getByRole("button", { name: "Close" }).click()
   await search.clear()
 
-  await workspaceAction(page, "Unlock editing")
-  const session = page.getByRole("dialog", { name: "Unlock editing" })
-  await session.getByLabel("Shared editor passphrase").fill(editorPassphrase)
-  await session.getByRole("button", { name: "Unlock editing" }).click()
-  await expect(page.getByText("Editing unlocked")).toBeVisible()
+  await unlockEditing(page)
 
   const tableButton = page.getByRole("button", { name: "Table", exact: true })
   await tableButton.click()
@@ -115,8 +107,7 @@ test("browse isolated PLCs and keep, reopen, and resolve a baseline address conf
   await filter.fill("Filler A")
   await expect(address).toHaveValue(correctedAddress)
   await expect(tableFlags).toHaveCount(0)
-  await workspaceAction(page, "Sign out")
-  await expectReadOnly(page)
+  await signOut(page)
   await expect(
     table.getByRole("row", { name: /Filler A HMI.*Ethernet/ })
   ).toContainText(correctedAddress)

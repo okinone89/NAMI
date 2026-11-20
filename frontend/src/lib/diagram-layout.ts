@@ -103,16 +103,41 @@ export function hostEnclosure(boxes: DiagramBox[]): DiagramBox {
 
 export function moveDiagramComponents(
   layout: ReturnType<typeof layoutDiagram>,
+  ids: readonly string[],
   id: string,
   position: DiagramPosition
 ) {
   const initial = layout.componentBoxes.get(id)!
   const dx = position.x - initial.x
   const dy = position.y - initial.y
-  const positions = new Map([[id, position]])
-  for (const guest of layout.guests.get(id) ?? []) {
-    const box = layout.componentBoxes.get(guest.id)!
-    positions.set(guest.id, { x: box.x + dx, y: box.y + dy })
+  const moving = new Set(ids)
+  for (const id of ids)
+    for (const guest of layout.guests.get(id) ?? []) moving.add(guest.id)
+
+  return new Map(
+    Array.from(moving, (id) => {
+      const box = layout.componentBoxes.get(id)!
+      return [id, { x: box.x + dx, y: box.y + dy }]
+    })
+  )
+}
+
+export function diagramBounds(boxes: DiagramBox[]): DiagramBox {
+  const x = Math.min(...boxes.map((box) => box.x))
+  const y = Math.min(...boxes.map((box) => box.y))
+  return {
+    x,
+    y,
+    width: Math.max(...boxes.map((box) => box.x + box.width)) - x,
+    height: Math.max(...boxes.map((box) => box.y + box.height)) - y,
   }
-  return positions
+}
+
+export function diagramBoxesTouch(a: DiagramBox, b: DiagramBox) {
+  return (
+    a.x <= b.x + b.width &&
+    b.x <= a.x + a.width &&
+    a.y <= b.y + b.height &&
+    b.y <= a.y + a.height
+  )
 }

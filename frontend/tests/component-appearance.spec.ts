@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase, workspaceAction } from "./workspace-settings"
+import { editorPassphrase, signOut } from "./workspace-settings"
 
 const plc = {
   id: "plc",
@@ -99,7 +99,7 @@ test("import an icon and reopen its named component as a visitor", async ({
   await editor.getByRole("button", { name: "Save component" }).click()
   await expect(editor).toBeHidden()
 
-  await workspaceAction(page, "Sign out")
+  await signOut(page)
   await page.reload()
   await expect(node.getByText(hmi.name, { exact: true })).toBeVisible()
   const icon = node.getByRole("img", { name: "Custom icon" })
@@ -143,7 +143,7 @@ test("save a labeled shape and reopen its name, label, and settings", async ({
   )
   await expect(editor.getByLabel("Shape label")).toHaveValue("Safety zone A")
   await editor.getByRole("button", { name: "Cancel" }).click()
-  await workspaceAction(page, "Sign out")
+  await signOut(page)
   await page.reload()
 
   await expect(node.getByRole("img", { name: "Diamond shape" })).toBeVisible()

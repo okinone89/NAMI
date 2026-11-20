@@ -35,7 +35,7 @@ Both modes listen on loopback at port 5080 by default. Use `-Urls http://127.0.0
 
 ### Open the workspace
 
-The launcher installs frontend dependencies as needed, builds the workspace, and starts the app and API together. Open [NAMI on localhost](http://127.0.0.1:5080). A fresh database shows **No plans yet**. Open **Workspace → Unlock editing** and enter `nami-local-editor`, the default passphrase for local development.
+The launcher installs frontend dependencies as needed, builds the workspace, and starts the app and API together. Open [NAMI on localhost](http://127.0.0.1:5080). A fresh database shows **No plans yet**. Click **View mode** in the toolbar and enter `nami-local-editor`, the default passphrase for local development.
 
 Plans are saved in `src/Nami.Api/data/nami.db` and are available the next time you run the launcher. Press Ctrl+C to stop it. If port 5080 is busy, run `./run --dev --urls http://127.0.0.1:5082` and open port 5082 instead.
 
@@ -125,7 +125,7 @@ python3 -B -m unittest discover -s tests -p '*.py'
 
 Run `./run` on macOS or Linux, or `.\run.ps1` in Windows PowerShell, to start in Production mode. Serve the workspace and `/api` from the same HTTPS origin on the site LAN or VPN. Anyone who can reach the site can browse its plans. To enable editing, set `Editor__Passphrase` in the service environment through your secret store before startup. Leaving it unset gives visitors read-only access.
 
-An unlocked editor can change any plan. **Sign out** ends the session, as do eight hours without plan API activity. Checking session status alone does not extend it. Run one API process per installation because sessions are held in memory. To rotate the passphrase, change the setting and restart the process. Editors must then unlock again.
+An unlocked editor can change any plan. Click **Edit mode** in the toolbar to sign out. The session also ends after eight hours without plan API activity. Checking session status alone does not extend it. Run one API process per installation because sessions are held in memory. To rotate the passphrase, change the setting and restart the process. Editors must then unlock again.
 
 ### Database and recovery
 

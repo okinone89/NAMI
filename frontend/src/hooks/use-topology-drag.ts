@@ -1,12 +1,14 @@
 import { useRef, useState, type MouseEvent, type PointerEvent } from "react"
-import type { DiagramItemKind } from "@/lib/diagram-placement"
 import type { DiagramPosition } from "@/lib/plans"
 
-export type DiagramItem = { id: string; kind: DiagramItemKind }
-type DraggedItem = DiagramItem & { position: DiagramPosition }
+export type ComponentMove = {
+  id: string
+  componentIds: readonly string[]
+  position: DiagramPosition
+}
 
 type Drag = {
-  item: DraggedItem
+  item: ComponentMove
   pointerId: number
   startX: number
   startY: number
@@ -17,21 +19,23 @@ type Drag = {
 export function useTopologyDrag(
   enabled: boolean,
   zoom: number,
-  savePosition: (item: DraggedItem) => Promise<void>
+  onDragStart: () => void,
+  savePosition: (item: ComponentMove) => Promise<void>
 ) {
   const active = useRef<Drag | undefined>(undefined)
   const ignoreClick = useRef(false)
-  const [preview, setPreview] = useState<DraggedItem>()
+  const [preview, setPreview] = useState<ComponentMove>()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
   function start(
     event: PointerEvent<HTMLButtonElement>,
-    item: DraggedItem,
+    item: ComponentMove,
     minimum: DiagramPosition
   ) {
     if (!enabled || saving || !event.isPrimary || event.button !== 0) return
     ignoreClick.current = false
+    if (event.shiftKey) return
     active.current = {
       item,
       pointerId: event.pointerId,
@@ -49,8 +53,11 @@ export function useTopologyDrag(
 
     const x = event.clientX - drag.startX
     const y = event.clientY - drag.startY
-    if (!drag.moved && Math.hypot(x, y) < 5) return
-    drag.moved = true
+    if (!drag.moved) {
+      if (Math.hypot(x, y) < 5) return
+      drag.moved = true
+      onDragStart()
+    }
     return {
       ...drag.item,
       position: {
@@ -77,7 +84,7 @@ export function useTopologyDrag(
     await place(item)
   }
 
-  async function place(item: DraggedItem) {
+  async function place(item: ComponentMove) {
     setPreview(item)
     setSaving(true)
     setError("")
@@ -102,9 +109,9 @@ export function useTopologyDrag(
   }
 
   function bind(
-    item: DraggedItem,
+    item: ComponentMove,
     minimum: DiagramPosition,
-    select: () => void
+    select: (event: MouseEvent<HTMLButtonElement>) => void
   ) {
     return {
       onPointerDown: (event: PointerEvent<HTMLButtonElement>) =>
@@ -117,7 +124,7 @@ export function useTopologyDrag(
       onPointerCancel: cancel,
       onLostPointerCapture: cancel,
       onClick: (event: MouseEvent<HTMLButtonElement>) => {
-        if (!ignoreClick.current || event.detail === 0) select()
+        if (!ignoreClick.current || event.detail === 0) select(event)
         ignoreClick.current = false
       },
     }

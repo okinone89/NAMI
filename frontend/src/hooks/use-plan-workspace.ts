@@ -27,6 +27,7 @@ export function usePlanWorkspace(
   const [allocationNotice, setAllocationNotice] = useState<{
     planId: string
     count: number
+    networks: string[]
   }>()
   const planId = plans?.find(({ id }) => id === selection)?.id ?? plans?.[0]?.id
   const plan = snapshot?.id === planId ? snapshot : undefined
@@ -113,14 +114,25 @@ export function usePlanWorkspace(
           .filter((network) => network.subnet)
           .map((network) => network.id)
       )
-      const count = saved.interfaces.filter(
+      const unassigned = saved.interfaces.filter(
         (port) =>
           port.ipv4 === null &&
           port.networkId &&
           subnetIds.has(port.networkId) &&
           !connected.has(port.id)
-      ).length
-      setAllocationNotice(count ? { planId: saved.id, count } : undefined)
+      )
+      const networkIds = new Set(unassigned.map((port) => port.networkId))
+      setAllocationNotice(
+        unassigned.length
+          ? {
+              planId: saved.id,
+              count: unassigned.length,
+              networks: saved.networks
+                .filter(({ id }) => networkIds.has(id))
+                .map(({ name }) => name),
+            }
+          : undefined
+      )
     }
     setSnapshot((current) =>
       current?.id === saved.id && current.revision < saved.revision
@@ -149,8 +161,8 @@ export function usePlanWorkspace(
     plans,
     plan,
     planId,
-    unassignedCount:
-      allocationNotice?.planId === planId ? allocationNotice?.count : undefined,
+    allocationNotice:
+      allocationNotice?.planId === planId ? allocationNotice : undefined,
     failed:
       listFailed || (failedPlanId !== undefined && failedPlanId === planId),
     loading: !plans || (planId !== undefined && !plan),

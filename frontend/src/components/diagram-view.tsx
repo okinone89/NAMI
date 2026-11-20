@@ -6,7 +6,9 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent,
 } from "react"
 import { flushSync } from "react-dom"
 import {
@@ -20,6 +22,8 @@ import {
   IconZoomIn,
   IconZoomOut,
   IconMaximize,
+  IconArrowsMove,
+  IconBoxMultiple,
 } from "@tabler/icons-react"
 import { ComponentLibrary } from "@/components/component-library"
 import { DiagramComponentLabel } from "@/components/diagram-component-label"
@@ -28,15 +32,24 @@ import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
 import { DiagramSearch } from "@/components/diagram-search"
 import { DiagramLinks, LinkLegend } from "@/components/diagram-links"
 import { LinkInspector } from "@/components/link-inspector"
+import { DuplicateComponentsDialog } from "@/components/duplicate-components-dialog"
+import { EditSelectedComponents } from "@/components/edit-selected-components"
 import { InterfaceLinkDialog } from "./interface-link-dialog"
 import { builtInSymbols } from "@/lib/component-appearance"
-import { duplicateComponent, deleteComponent } from "@/lib/component-actions"
+import {
+  addComponentCopies,
+  duplicateComponents,
+  deleteComponents,
+  type ComponentCopies,
+} from "@/lib/component-actions"
 import { confirmLinkRemoval } from "@/lib/link-labels"
 import { interfaceAddressLabel } from "@/lib/ipv4-subnet"
 import { networkColor } from "@/lib/network-color"
-import { useTopologyDrag } from "@/hooks/use-topology-drag"
+import { useTopologyDrag, type ComponentMove } from "@/hooks/use-topology-drag"
 import {
   canvasWidth,
+  diagramBounds,
+  diagramBoxesTouch,
   hostEnclosure,
   layoutDiagram,
   moveDiagramComponents,
@@ -63,32 +76,55 @@ import type {
 } from "@/lib/plans"
 
 type Props = PlanViewProps & {
-  onAddComponent: () => void
-  onPlaceComponent: (
-    position: DiagramPosition,
-    onPlaced: (componentId: string) => void,
+  onAddComponent: (options: {
+    position?: DiagramPosition
     initialType?: string
-  ) => void
+    onAdded: () => void
+  }) => void
 }
 
 const defaultHeight = 400
 const movable = "touch-none cursor-grab active:cursor-grabbing"
+const missingIpv4Label = "No IPv4 address assigned"
+const ipv4ConflictLabel = "IPv4 address conflict"
+
+type CanvasGesture = {
+  id: number
+  client: DiagramPosition
+  start: DiagramPosition
+  scroll: DiagramPosition
+  selecting: boolean
+  moved: boolean
+}
 
 export function DiagramView({
   plan,
   canEdit,
+  automaticIpAssignment = false,
   onSelectComponent,
   onAddComponent,
-  onPlaceComponent,
   savePlan,
   filter,
   updateFilter,
 }: Props) {
   const { query: searchQuery, networkIds } = filter
+  const networkScope = JSON.stringify(networkIds)
   const [zoom, setZoom] = useState(1)
   const [fitInset, setFitInset] = useState({ x: 0, y: 0 })
+  const [retainedViewport, setRetainedViewport] = useState<DiagramBox>()
+  const preservePanOnFilterClear = useRef(false)
   const linkLayer = useRef<SVGSVGElement>(null)
   const [library, setLibrary] = useState(false)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selection, setSelection] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
+  const [editing, setEditing] = useState<ReadonlySet<string>>()
+  const [duplicating, setDuplicating] = useState<ComponentCopies>()
+  const [copiesToSelect, setCopiesToSelect] = useState<string[]>()
+  const [copiesToReveal, setCopiesToReveal] = useState<string[]>()
+  const revealedCopies = useRef<string[]>(undefined)
+  const [hiddenCopies, setHiddenCopies] = useState<string[]>()
   type MenuTarget = { component: Component } | { link: PlanLink }
   const [menu, setMenu] = useState<MenuTarget & { x: number; y: number }>()
   function openMenu(target: MenuTarget, x: number, y: number) {
@@ -106,12 +142,13 @@ export function DiagramView({
   const [target, setTarget] = useState<string>()
   const [actionError, setActionError] = useState("")
   const [savingAction, setSavingAction] = useState(false)
-  async function applyAction(next: Plan) {
+  async function applyAction(next: Plan, onSaved?: () => void) {
     setMenu(undefined)
     setSavingAction(true)
     setActionError("")
     try {
       await savePlan(next)
+      onSaved?.()
     } catch (error) {
       setActionError(
         error instanceof Error ? error.message : "Could not save the plan."
@@ -122,13 +159,11 @@ export function DiagramView({
   }
   const [highlightedResult, setHighlightedResult] =
     useState<DiagramSearchResult>()
-  const [placedComponentId, setPlacedComponentId] = useState<string>()
-  const [movingComponentId, setMovingComponentId] = useState<string>()
-  const movingComponent = canEdit
-    ? plan.components.find(({ id }) => id === movingComponentId)
-    : undefined
+  const [pendingMove, setPendingMove] = useState<ComponentMove>()
   const canvasRef = useRef<HTMLDivElement>(null)
-  const pan = useRef<{ id: number; x: number; y: number } | null>(null)
+  const gesture = useRef<CanvasGesture | null>(null)
+  const ignoreCanvasClick = useRef(false)
+  const [marquee, setMarquee] = useState<DiagramBox>()
   const movePrompt = useRef<HTMLDivElement>(null)
   const highlightedNode = useRef<HTMLButtonElement>(null)
   const searchResults = useMemo(
@@ -173,11 +208,74 @@ export function DiagramView({
     [plan, savedLayout, networkIds, searchQuery, matchIds]
   )
   const { componentBoxes, guests, topLevel } = scope.layout
+  if (hiddenCopies?.some((id) => componentBoxes.has(id)))
+    setHiddenCopies(undefined)
+  const move =
+    canEdit && pendingMove?.componentIds.every((id) => componentBoxes.has(id))
+      ? pendingMove
+      : undefined
+  if (pendingMove && !move) setPendingMove(undefined)
+  const selected = useMemo(
+    () =>
+      new Set(
+        canEdit
+          ? Array.from(selection).filter((id) => componentBoxes.has(id))
+          : []
+      ),
+    [canEdit, componentBoxes, selection]
+  )
+  if (selected.size !== selection.size) setSelection(selected)
+  if (!canEdit) {
+    if (selectionMode) setSelectionMode(false)
+    if (editing) setEditing(undefined)
+    if (duplicating) setDuplicating(undefined)
+    if (copiesToSelect) setCopiesToSelect(undefined)
+  }
+  if (
+    canEdit &&
+    copiesToSelect?.every((id) => savedLayout.componentBoxes.has(id))
+  ) {
+    const visible = copiesToSelect.filter((id) => componentBoxes.has(id))
+    setCopiesToSelect(undefined)
+    setSelection(new Set(visible))
+    setCopiesToReveal(visible.length ? visible : undefined)
+    setHiddenCopies(visible.length ? undefined : copiesToSelect)
+  }
+  const savedBoxes = [
+    ...savedLayout.componentBoxes.values(),
+    ...savedLayout.enclosures.values(),
+  ]
+  const minX = Math.min(
+    retainedViewport?.x ?? 0,
+    ...savedBoxes.map(({ x }) => x)
+  )
+  const minY = Math.min(
+    retainedViewport?.y ?? 0,
+    ...savedBoxes.map(({ y }) => y)
+  )
+  const origin = { x: minX - fitInset.x, y: minY - fitInset.y }
+  function retainViewport() {
+    const frame = canvasRef.current
+    if (!frame) return
+    // Keep enough canvas for the current pan when the outermost card moves in.
+    setRetainedViewport({
+      x: minX,
+      y: minY,
+      width: (frame.scrollLeft + frame.clientWidth) / zoom,
+      height: (frame.scrollTop + frame.clientHeight) / zoom,
+    })
+  }
   const { bind, place, preview, saving, error } = useTopologyDrag(
-    canEdit && !movingComponent && !source && !savingAction,
+    canEdit && !move && !source && !savingAction,
     zoom,
-    async ({ id, position }) => {
-      const positions = moveDiagramComponents(savedLayout, id, position)
+    retainViewport,
+    async ({ componentIds, id, position }) => {
+      const positions = moveDiagramComponents(
+        savedLayout,
+        componentIds,
+        id,
+        position
+      )
       await savePlan({
         ...plan,
         components: plan.components.map((component) => {
@@ -187,23 +285,20 @@ export function DiagramView({
       })
     }
   )
-  const savedBoxes = [
-    ...savedLayout.componentBoxes.values(),
-    ...savedLayout.enclosures.values(),
-  ]
-  const origin = {
-    x: Math.min(0, ...savedBoxes.map(({ x }) => x)) - fitInset.x,
-    y: Math.min(0, ...savedBoxes.map(({ y }) => y)) - fitInset.y,
-  }
   const toCanvasBox = (box: DiagramBox) => ({
     ...box,
     x: box.x - origin.x,
     y: box.y - origin.y,
   })
-  const movedComponents =
-    preview?.kind === "component"
-      ? moveDiagramComponents(savedLayout, preview.id, preview.position)
-      : undefined
+  const moving = preview ?? move
+  const movedComponents = moving
+    ? moveDiagramComponents(
+        savedLayout,
+        moving.componentIds,
+        moving.id,
+        moving.position
+      )
+    : undefined
   const components = new Map(
     Array.from(componentBoxes, ([id, box]) => [
       id,
@@ -211,11 +306,11 @@ export function DiagramView({
     ])
   )
   const scrollToScope = useEffectEvent(() => {
-    const box = placedComponentId
-      ? components.get(placedComponentId)
-      : networkIds.length
-        ? components.values().next().value
-        : undefined
+    if (preservePanOnFilterClear.current) {
+      preservePanOnFilterClear.current = false
+      if (!networkIds.length) return
+    }
+    const box = networkIds.length ? components.values().next().value : undefined
     canvasRef.current?.scrollTo(
       box ? (box.x - 24) * zoom : 0,
       box ? (box.y - 24) * zoom : 0
@@ -223,15 +318,52 @@ export function DiagramView({
   })
   useLayoutEffect(() => {
     scrollToScope()
-  }, [networkIds, scope.focused, placedComponentId])
+  }, [networkScope])
+  const revealCopies = useEffectEvent(() => {
+    const frame = canvasRef.current
+    if (!frame || !copiesToReveal || revealedCopies.current === copiesToReveal)
+      return
+    const visible = copiesToReveal.flatMap((id) => {
+      const box = components.get(id)
+      return box ? [box] : []
+    })
+    if (!visible.length) return
+    const bounds = diagramBounds(visible)
+    const scale = Math.max(
+      0.01,
+      Math.min(
+        zoom,
+        (frame.clientWidth - 32) / bounds.width,
+        (frame.clientHeight - 48) / bounds.height
+      )
+    )
+    if (scale < zoom) {
+      setZoom(scale)
+      return
+    }
+    revealedCopies.current = copiesToReveal
+    frame.scrollTo(
+      (bounds.x + bounds.width / 2) * zoom - frame.clientWidth / 2,
+      (bounds.y + bounds.height / 2) * zoom - frame.clientHeight / 2
+    )
+    frame.scrollIntoView({ block: "nearest" })
+  })
+  useLayoutEffect(() => {
+    revealCopies()
+  }, [copiesToReveal, zoom])
   useLayoutEffect(() => {
     const node = highlightedNode.current
     node?.focus({ preventScroll: true })
     node?.scrollIntoView({ block: "nearest", inline: "center" })
   }, [highlightedComponentId, highlightedResult])
-  const isMoving = movingComponent !== undefined
+  const isMoving = move !== undefined
+  const retainViewportForMove = useEffectEvent(retainViewport)
   useLayoutEffect(() => {
-    if (isMoving) movePrompt.current?.scrollIntoView({ block: "start" })
+    if (isMoving) {
+      retainViewportForMove()
+      movePrompt.current?.scrollIntoView({ block: "nearest" })
+      canvasRef.current?.focus({ preventScroll: true })
+    }
   }, [isMoving])
 
   const hostGroups = new Map(
@@ -246,10 +378,12 @@ export function DiagramView({
   const boxes = [...components.values(), ...hostGroups.values()]
   const width = Math.max(
     canvasWidth,
+    retainedViewport?.width ?? 0,
     ...boxes.map(({ x, width }) => x + width + 72)
   )
   const height = Math.max(
     defaultHeight,
+    retainedViewport?.height ?? 0,
     ...boxes.map(({ y, height }) => y + height + 72)
   )
   const canvasSize = { width, height, zoom }
@@ -292,6 +426,22 @@ export function DiagramView({
       ?.filter((issue) => issue.code === "duplicateIpv4")
       .flatMap((issue) => issue.interfaces.map((port) => port.componentId))
   )
+  const portsByComponent = useMemo(() => {
+    const groups = new Map<string, PlanInterface[]>()
+    for (const port of plan.interfaces) {
+      const ports = groups.get(port.componentId)
+      if (ports) ports.push(port)
+      else groups.set(port.componentId, [port])
+    }
+    return groups
+  }, [plan.interfaces])
+  const componentsById = useMemo(
+    () =>
+      new Map(plan.components.map((component) => [component.id, component])),
+    [plan.components]
+  )
+  const selectedMinimum = minimumTranslation(selected)
+  const selectedIds = [...selected]
 
   function componentMinimum({ id, hostId }: Component) {
     const hostBounds = savedLayout.enclosures.get(id)
@@ -306,27 +456,160 @@ export function DiagramView({
         : origin
   }
 
+  function minimumTranslation(ids: ReadonlySet<string>) {
+    const minimum = { x: -Infinity, y: -Infinity }
+    for (const id of ids) {
+      const component = componentsById.get(id)!
+      if (component.hostId && ids.has(component.hostId)) continue
+      const box = savedLayout.componentBoxes.get(id)!
+      const limit = componentMinimum(component)
+      minimum.x = Math.max(minimum.x, limit.x - box.x)
+      minimum.y = Math.max(minimum.y, limit.y - box.y)
+    }
+    return minimum
+  }
+
+  function toggleSelected(id: string) {
+    setHiddenCopies(undefined)
+    setSelection((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function clearSelection() {
+    if (selection.size) setSelection(new Set())
+  }
+
+  function startMove(componentIds: readonly string[]) {
+    if (saving || savingAction) return
+    const id = componentIds[0]
+    setMenu(undefined)
+    setPendingMove({
+      id,
+      componentIds,
+      position: savedLayout.componentBoxes.get(id)!,
+    })
+  }
+
+  function editSelection() {
+    setMenu(undefined)
+    setEditing(selected)
+  }
+
+  function duplicationSaved(copies: ComponentCopies) {
+    setDuplicating(undefined)
+    setCopiesToSelect(copies.components.map(({ id }) => id))
+  }
+
+  function startDuplicate(ids: ReadonlySet<string>) {
+    if (saving || savingAction) return
+    const copies = duplicateComponents(
+      plan,
+      ids,
+      savedLayout,
+      automaticIpAssignment
+    )
+    setMenu(undefined)
+    setHiddenCopies(undefined)
+    setActionError("")
+    if (!automaticIpAssignment && copies.interfaces.length)
+      setDuplicating(copies)
+    else
+      void applyAction(addComponentCopies(plan, copies), () =>
+        duplicationSaved(copies)
+      )
+  }
+
+  function confirmDelete(ids: ReadonlySet<string>, description: string) {
+    if (saving || savingAction) return
+    setMenu(undefined)
+    const leavesGuests = plan.components.some(
+      ({ id, hostId }) => !ids.has(id) && hostId && ids.has(hostId)
+    )
+    const guests = leavesGuests
+      ? " Any unselected hosted VMs will become unhosted."
+      : ""
+    if (
+      window.confirm(
+        `Delete ${description} and remove all associated interfaces and connected links?${guests}`
+      )
+    ) {
+      void applyAction(deleteComponents(plan, ids))
+    }
+  }
+
+  function selectionActions(inMenu = false) {
+    const disabled = saving || savingAction || isMoving || !!source
+    return (
+      <>
+        <Button
+          autoFocus={inMenu}
+          variant="outline"
+          disabled={disabled}
+          onClick={() => startMove(selectedIds)}
+        >
+          <IconArrowsMove aria-hidden="true" data-icon="inline-start" /> Move
+          selected
+        </Button>
+        <Button variant="outline" disabled={disabled} onClick={editSelection}>
+          <IconPencil aria-hidden="true" data-icon="inline-start" /> Edit
+          selected
+        </Button>
+        <Button
+          variant="outline"
+          disabled={disabled}
+          onClick={() => startDuplicate(selected)}
+        >
+          <IconCopy aria-hidden="true" data-icon="inline-start" /> Duplicate
+          selected
+        </Button>
+        <Button
+          variant="destructive"
+          disabled={disabled}
+          onClick={() =>
+            confirmDelete(
+              selected,
+              `the ${selected.size} selected ${selected.size === 1 ? "component" : "components"}`
+            )
+          }
+        >
+          <IconTrash aria-hidden="true" data-icon="inline-start" /> Delete
+          selected
+        </Button>
+      </>
+    )
+  }
+
   function renderComponent(component: Component, enclosure?: DiagramBox) {
     const box = components.get(component.id)!
     const initial = componentBoxes.get(component.id)!
     const highlighted = component.id === highlightedComponentId
-    const ports = plan.interfaces.filter((p) => p.componentId === component.id)
+    const ports = portsByComponent.get(component.id) ?? []
+    const warning = flaggedComponents.has(component.id)
+      ? ipv4ConflictLabel
+      : ports.some((port) => port.networkId) && !ports.some((port) => port.ipv4)
+        ? missingIpv4Label
+        : undefined
+    const isSelected = selected.has(component.id)
+    const dragIds = isSelected ? selectedIds : [component.id]
     return (
       <Button
         key={component.id}
         ref={highlighted ? highlightedNode : undefined}
         variant="outline"
         aria-label={component.name}
-        aria-description={
-          flaggedComponents.has(component.id)
-            ? "IPv4 address conflict"
-            : undefined
-        }
-        aria-haspopup="dialog"
+        aria-description={warning}
+        aria-haspopup={selectionMode ? undefined : "dialog"}
+        aria-pressed={selectionMode || selected.size ? isSelected : undefined}
         aria-current={highlighted || undefined}
         className={cn(
           "pointer-events-auto absolute z-20 flex-col items-start gap-1 px-4 py-3 text-left whitespace-normal transition-colors dark:bg-background dark:hover:bg-muted",
           canEdit && movable,
+          isSelected &&
+            "z-30 border-primary ring-2 ring-primary ring-offset-1 ring-offset-background",
 
           highlighted &&
             "z-30 ring-2 ring-primary ring-offset-2 ring-offset-background"
@@ -355,14 +638,22 @@ export function DiagramView({
         }}
         title={component.name}
         {...bind(
-          { id: component.id, kind: "component", position: initial },
-          componentMinimum(component),
-          () =>
-            source && canEdit
-              ? component.id !== source.componentId && setTarget(component.id)
-              : onSelectComponent(component.id, () =>
-                  setMovingComponentId(component.id)
-                )
+          { id: component.id, componentIds: dragIds, position: initial },
+          isSelected
+            ? {
+                x: initial.x + selectedMinimum.x,
+                y: initial.y + selectedMinimum.y,
+              }
+            : componentMinimum(component),
+          (event) => {
+            if (source && canEdit) {
+              if (component.id !== source.componentId) setTarget(component.id)
+            } else if (canEdit && (selectionMode || event.shiftKey)) {
+              toggleSelected(component.id)
+            } else {
+              onSelectComponent(component.id, () => startMove([component.id]))
+            }
+          }
         )}
       >
         <DiagramComponentLabel component={component} />
@@ -389,11 +680,16 @@ export function DiagramView({
           )
         })}
 
-        {flaggedComponents.has(component.id) && (
+        {warning && (
           <IconAlertTriangle
             role="img"
-            aria-label="IPv4 address conflict"
-            className="absolute -top-2 -right-2 size-5 border bg-background text-destructive"
+            aria-label={warning}
+            className={cn(
+              "absolute -top-2 -right-2 size-5 border bg-background",
+              warning === ipv4ConflictLabel
+                ? "text-destructive"
+                : "text-warning"
+            )}
           />
         )}
       </Button>
@@ -408,39 +704,142 @@ export function DiagramView({
     }
   }
 
-  function revealPlacement(id: string) {
+  function clearFiltersAfterAdding() {
+    preservePanOnFilterClear.current = networkIds.length > 0
+    setHighlightedResult(undefined)
     updateFilter({ networkIds: [], query: "" })
-    setPlacedComponentId(id)
+  }
+
+  function addComponent(position?: DiagramPosition, initialType?: string) {
+    onAddComponent({ position, initialType, onAdded: clearFiltersAfterAdding })
   }
 
   function drop(event: DragEvent<HTMLDivElement>) {
-    if (!canEdit || movingComponent) return
+    if (!canEdit || move) return
     const type = event.dataTransfer.getData(placementType)
     const initialType = Object.entries(builtInSymbols).find(
       ([key]) => key === type
     )?.[1]
     if (!initialType && type !== "component") return
     event.preventDefault()
-    onPlaceComponent(
-      canvasPosition(event),
-      revealPlacement,
-      type === "vm" ? "VM" : initialType
-    )
+    addComponent(canvasPosition(event), type === "vm" ? "VM" : initialType)
   }
 
-  function moveTo(event: MouseEvent<HTMLDivElement>, component: Component) {
-    if (saving) return
-    const destination = canvasPosition(event)
-    const minimum = componentMinimum(component)
-    setMovingComponentId(undefined)
-    void place({
-      id: component.id,
-      kind: "component",
-      position: {
-        x: Math.max(minimum.x, destination.x),
-        y: Math.max(minimum.y, destination.y),
-      },
+  function clampMove(move: ComponentMove, position: DiagramPosition) {
+    const anchor = savedLayout.componentBoxes.get(move.id)!
+    const minimum = minimumTranslation(new Set(move.componentIds))
+    return {
+      x: Math.max(anchor.x + minimum.x, position.x),
+      y: Math.max(anchor.y + minimum.y, position.y),
+    }
+  }
+
+  function finishMove(destination: DiagramPosition) {
+    if (!move || saving) return
+    const position = clampMove(move, destination)
+    setPendingMove(undefined)
+    void place({ ...move, position })
+  }
+
+  function handleDiagramKey(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      if (move) setPendingMove(undefined)
+      else clearSelection()
+      return
+    }
+    if (!move || event.target !== canvasRef.current) return
+    if (event.key === "Enter") {
+      event.preventDefault()
+      finishMove(move.position)
+      return
+    }
+    const step = 10
+    const arrowOffsets: Record<string, DiagramPosition> = {
+      ArrowUp: { x: 0, y: -step },
+      ArrowDown: { x: 0, y: step },
+      ArrowLeft: { x: -step, y: 0 },
+      ArrowRight: { x: step, y: 0 },
+    }
+    const offset = arrowOffsets[event.key]
+    if (!offset) return
+    event.preventDefault()
+    const position = clampMove(move, {
+      x: move.position.x + offset.x,
+      y: move.position.y + offset.y,
     })
+    setPendingMove({ ...move, position })
+  }
+
+  function gesturePosition(
+    event: PointerEvent<HTMLDivElement>
+  ): DiagramPosition {
+    const frame = event.currentTarget
+    const rect = frame.getBoundingClientRect()
+    return {
+      x: (event.clientX - rect.left + frame.scrollLeft) / zoom,
+      y: (event.clientY - rect.top + frame.scrollTop) / zoom,
+    }
+  }
+
+  function selectionRectangle(
+    start: DiagramPosition,
+    end: DiagramPosition
+  ): DiagramBox {
+    return {
+      x: Math.min(start.x, end.x),
+      y: Math.min(start.y, end.y),
+      width: Math.abs(start.x - end.x),
+      height: Math.abs(start.y - end.y),
+    }
+  }
+
+  function startCanvasGesture(event: PointerEvent<HTMLDivElement>) {
+    if (
+      !event.isPrimary ||
+      event.button !== 0 ||
+      isMoving ||
+      (event.target as Element).closest('button, [role="button"]')
+    )
+      return
+    ignoreCanvasClick.current = false
+    if (event.pointerType === "touch") return
+    const frame = event.currentTarget
+    gesture.current = {
+      id: event.pointerId,
+      client: { x: event.clientX, y: event.clientY },
+      start: gesturePosition(event),
+      scroll: { x: frame.scrollLeft, y: frame.scrollTop },
+      selecting: canEdit && !source && (selectionMode || event.shiftKey),
+      moved: false,
+    }
+    frame.setPointerCapture(event.pointerId)
+  }
+
+  function updateCanvasGesture(event: PointerEvent<HTMLDivElement>) {
+    const active = gesture.current
+    if (active?.id !== event.pointerId) return
+    const dx = event.clientX - active.client.x
+    const dy = event.clientY - active.client.y
+    if (!active.moved && Math.hypot(dx, dy) < 5) return
+    active.moved = true
+    if (active.selecting)
+      setMarquee(selectionRectangle(active.start, gesturePosition(event)))
+    else
+      event.currentTarget.scrollTo(active.scroll.x - dx, active.scroll.y - dy)
+  }
+
+  function endCanvasGesture(event: PointerEvent<HTMLDivElement>) {
+    const active = gesture.current
+    if (active?.id !== event.pointerId) return
+    gesture.current = null
+    ignoreCanvasClick.current = active.moved
+    setMarquee(undefined)
+    if (!canEdit || !active.selecting || !active.moved) return
+    const rectangle = selectionRectangle(active.start, gesturePosition(event))
+    const hitIds = Array.from(components)
+      .filter(([, box]) => diagramBoxesTouch(rectangle, box))
+      .map(([id]) => id)
+    setSelection((current) => new Set([...current, ...hitIds]))
   }
 
   return (
@@ -453,18 +852,20 @@ export function DiagramView({
           setHighlightedResult(undefined)
         }}
         onSelectResult={(result) => {
-          setPlacedComponentId(undefined)
           if (!result.networkId || !networkIds.includes(result.networkId))
             updateFilter({
               networkIds: result.networkId ? [result.networkId] : [],
             })
           setHighlightedResult({ ...result })
-          setMovingComponentId(undefined)
+          setPendingMove(undefined)
         }}
       >
         {plan.links.length > 0 && <LinkLegend />}
       </DiagramSearch>
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+      <div
+        className="flex flex-wrap items-center gap-2 border-b px-4 py-2"
+        onKeyDown={handleDiagramKey}
+      >
         {canEdit && (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger
@@ -477,7 +878,7 @@ export function DiagramView({
             <DropdownMenuContent className="w-44">
               <DropdownMenuGroup>
                 <DropdownMenuItem
-                  onClick={onAddComponent}
+                  onClick={() => addComponent()}
                   {...diagramDragSource("component")}
                 >
                   <IconBox aria-hidden="true" />
@@ -501,6 +902,19 @@ export function DiagramView({
             onClick={() => setLibrary(!library)}
           >
             <IconLibrary aria-hidden="true" /> Component library
+          </Button>
+        )}
+        {canEdit && (
+          <Button
+            variant={selectionMode ? "default" : "outline"}
+            aria-pressed={selectionMode}
+            disabled={isMoving || !!source}
+            onClick={() => {
+              if (selectionMode) clearSelection()
+              setSelectionMode(!selectionMode)
+            }}
+          >
+            <IconBoxMultiple aria-hidden="true" /> Select components
           </Button>
         )}
         <div
@@ -553,6 +967,24 @@ export function DiagramView({
           </Button>
         </div>
       </div>
+      {selected.size > 0 && (
+        <div
+          role="group"
+          aria-label="Selected components"
+          className="flex flex-wrap items-center gap-2 border-b px-4 py-2"
+          onKeyDown={handleDiagramKey}
+        >
+          <span role="status" className="mr-2 text-xs font-medium">
+            {selected.size} selected
+          </span>
+          {selectionActions()}
+        </div>
+      )}
+      {hiddenCopies && (
+        <p role="status" className="border-b px-4 py-2 text-xs">
+          Duplicated successfully. The copies are hidden by the current filters.
+        </p>
+      )}
       {source && canEdit && (
         <div className="flex items-center gap-3 border-b p-3">
           <p role="status">Select the component to connect to {source.name}.</p>
@@ -566,18 +998,21 @@ export function DiagramView({
           {actionError}
         </p>
       )}
-      {movingComponent && (
+      {move && (
         <div
           ref={movePrompt}
           className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted px-4 py-2"
         >
           <p role="status" className="text-xs">
-            Tap or click the destination for {movingComponent.name}.
+            {move.componentIds.length === 1
+              ? `Tap or click the destination for ${plan.components.find(({ id }) => id === move.id)?.name}.`
+              : `Tap or click the destination for ${move.componentIds.length} selected components.`}{" "}
+            Use arrow keys to move and Enter to save.
           </p>
           <Button
             variant="outline"
             className="min-h-11"
-            onClick={() => setMovingComponentId(undefined)}
+            onClick={() => setPendingMove(undefined)}
           >
             <IconX aria-hidden="true" data-icon="inline-start" /> Cancel move
           </Button>
@@ -592,7 +1027,7 @@ export function DiagramView({
         {library && canEdit && (
           <ComponentLibrary
             onChoose={(key) =>
-              onPlaceComponent(
+              addComponent(
                 {
                   x:
                     Math.round((canvasRef.current?.scrollLeft ?? 0) / zoom) +
@@ -603,45 +1038,42 @@ export function DiagramView({
                     origin.y +
                     32,
                 },
-                revealPlacement,
                 key === "vm" ? "VM" : builtInSymbols[key]
               )
             }
           />
         )}
         <div
-          className="diagram-grid relative max-h-[70svh] min-h-[50svh] min-w-0 flex-1 cursor-grab overflow-auto select-none active:cursor-grabbing"
+          className={cn(
+            "diagram-grid relative max-h-[70svh] min-h-[50svh] min-w-0 flex-1 overflow-auto select-none",
+            selectionMode
+              ? "cursor-crosshair"
+              : "cursor-grab active:cursor-grabbing"
+          )}
           role="region"
           aria-label="Topology canvas"
           tabIndex={0}
           ref={canvasRef}
-          onPointerDown={(event) => {
-            if (
-              event.pointerType === "touch" ||
-              !event.isPrimary ||
-              event.button !== 0 ||
-              isMoving ||
-              (event.target as Element).closest('button, [role="button"]')
-            )
-              return
-            const frame = event.currentTarget
-            pan.current = {
-              id: event.pointerId,
-              x: frame.scrollLeft + event.clientX,
-              y: frame.scrollTop + event.clientY,
-            }
-            frame.setPointerCapture(event.pointerId)
-          }}
-          onPointerMove={(event) => {
-            if (pan.current?.id === event.pointerId)
-              event.currentTarget.scrollTo(
-                pan.current.x - event.clientX,
-                pan.current.y - event.clientY
-              )
-          }}
+          onPointerDown={startCanvasGesture}
+          onPointerMove={updateCanvasGesture}
+          onPointerUp={endCanvasGesture}
           onLostPointerCapture={(event) => {
-            if (pan.current?.id === event.pointerId) pan.current = null
+            if (gesture.current?.id !== event.pointerId) return
+            gesture.current = null
+            setMarquee(undefined)
           }}
+          onClick={(event) => {
+            if (ignoreCanvasClick.current) {
+              ignoreCanvasClick.current = false
+              return
+            }
+            if (
+              !isMoving &&
+              !(event.target as Element).closest('button, [role="button"]')
+            )
+              clearSelection()
+          }}
+          onKeyDown={handleDiagramKey}
         >
           <div
             className="relative isolate min-h-[50svh] min-w-full"
@@ -650,7 +1082,7 @@ export function DiagramView({
             onDragOver={(event) => {
               if (
                 canEdit &&
-                !movingComponent &&
+                !isMoving &&
                 event.dataTransfer.types.includes(placementType)
               ) {
                 event.preventDefault()
@@ -723,17 +1155,48 @@ export function DiagramView({
                 </div>
               )
             })}
+            {marquee && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute z-40 border border-primary bg-primary/10"
+                style={{
+                  left: marquee.x,
+                  top: marquee.y,
+                  width: marquee.width,
+                  height: marquee.height,
+                }}
+              />
+            )}
           </div>
-          {movingComponent && (
+          {move && (
             <div
               aria-hidden="true"
               className="absolute top-0 left-0 z-40 min-h-[50svh] min-w-full cursor-crosshair"
               style={canvasSize}
-              onClick={(event) => moveTo(event, movingComponent)}
+              onClick={(event) => finishMove(canvasPosition(event))}
             />
           )}
         </div>
       </div>
+      {editing && canEdit && (
+        <EditSelectedComponents
+          plan={plan}
+          selection={editing}
+          savePlan={savePlan}
+          onClose={() => setEditing(undefined)}
+        />
+      )}
+      {duplicating && canEdit && (
+        <DuplicateComponentsDialog
+          plan={plan}
+          copies={duplicating}
+          onClose={() => setDuplicating(undefined)}
+          savePlan={async (next, approvals) => {
+            await savePlan(next, approvals)
+            duplicationSaved(duplicating)
+          }}
+        />
+      )}
       {(link || (linkSelection === null && canEdit)) && (
         <LinkInspector
           key={link?.id ?? "new"}
@@ -759,7 +1222,9 @@ export function DiagramView({
             aria-label={
               "link" in menu
                 ? "Connection actions"
-                : menu.component.name + " actions"
+                : selected.has(menu.component.id)
+                  ? "Selection actions"
+                  : menu.component.name + " actions"
             }
             className="fixed flex max-h-[min(300px,100dvh)] w-60 flex-col gap-1 overflow-auto border bg-background p-2 shadow-md"
             style={{ left: menu.x, top: menu.y }}
@@ -791,56 +1256,58 @@ export function DiagramView({
               </>
             ) : (
               <>
-                {" "}
-                <Button
-                  autoFocus
-                  variant="outline"
-                  onClick={() =>
-                    void applyAction(
-                      duplicateComponent(
-                        plan,
-                        menu.component,
-                        savedLayout.componentBoxes.get(menu.component.id)!
-                      )
-                    )
-                  }
-                >
-                  <IconCopy aria-hidden="true" data-icon="inline-start" />{" "}
-                  Duplicate
-                </Button>
-                {plan.interfaces
-                  .filter((p) => p.componentId === menu.component.id)
-                  .map((port) => (
-                    <Button
-                      key={port.id}
-                      variant="outline"
-                      onClick={() => {
-                        setSource(port)
-                        setTarget(undefined)
-                        setMenu(undefined)
-                      }}
-                    >
-                      <IconLink aria-hidden="true" data-icon="inline-start" />{" "}
-                      Link from {port.name}
-                    </Button>
-                  ))}
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "Delete " +
-                          menu.component.name +
-                          " and its interfaces and links? Hosted VMs will be kept."
-                      )
-                    )
-                      void applyAction(deleteComponent(plan, menu.component.id))
-                    else setMenu(undefined)
-                  }}
-                >
-                  <IconTrash aria-hidden="true" data-icon="inline-start" />{" "}
-                  Delete
-                </Button>
+                {selected.has(menu.component.id) ? (
+                  selectionActions(true)
+                ) : (
+                  <Button
+                    autoFocus
+                    variant="outline"
+                    onClick={() => startDuplicate(new Set([menu.component.id]))}
+                  >
+                    <IconCopy aria-hidden="true" data-icon="inline-start" />{" "}
+                    Duplicate
+                  </Button>
+                )}
+                {(!selected.has(menu.component.id) || selected.size === 1) && (
+                  <>
+                    {plan.interfaces
+                      .filter((p) => p.componentId === menu.component.id)
+                      .map((port) => (
+                        <Button
+                          key={port.id}
+                          variant="outline"
+                          onClick={() => {
+                            setSource(port)
+                            setTarget(undefined)
+                            setMenu(undefined)
+                          }}
+                        >
+                          <IconLink
+                            aria-hidden="true"
+                            data-icon="inline-start"
+                          />{" "}
+                          Link from {port.name}
+                        </Button>
+                      ))}
+                    {!selected.has(menu.component.id) && (
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          confirmDelete(
+                            new Set([menu.component.id]),
+                            menu.component.name
+                          )
+                        }
+                      >
+                        <IconTrash
+                          aria-hidden="true"
+                          data-icon="inline-start"
+                        />{" "}
+                        Delete
+                      </Button>
+                    )}
+                  </>
+                )}
               </>
             )}
           </div>

@@ -1,6 +1,11 @@
 import { expect, test, type Page, type Locator } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase, workspaceAction } from "./workspace-settings"
+import {
+  editorPassphrase,
+  signOut,
+  unlockEditing,
+  workspaceAction,
+} from "./workspace-settings"
 
 test("switch views while loading and browse the empty plan", async ({
   page,
@@ -53,21 +58,61 @@ test("switch views while loading and browse the empty plan", async ({
   ).toBe(true)
 })
 
+test("create the first plan from either empty view", async ({ page }, info) => {
+  await page.route("**/api/plans", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ json: [] })
+      : route.continue()
+  )
+  await page.goto("/")
+
+  const toolbar = page.getByRole("banner")
+  const viewMode = toolbar.getByRole("button", { name: "View mode" })
+  await expect(viewMode).toBeVisible()
+  const diagram = page.getByRole("region", { name: "Diagram", exact: true })
+  await expect(
+    diagram.getByRole("heading", { name: "No plans yet" })
+  ).toBeVisible()
+  await diagram.getByRole("button", { name: "Create plan" }).click()
+  const unlock = page.getByRole("dialog", { name: "Unlock editing" })
+  await unlock.getByRole("button", { name: "Cancel" }).click()
+  await expect(viewMode).toBeVisible()
+
+  await page.getByRole("button", { name: "Table", exact: true }).click()
+  const table = page.getByRole("region", { name: "Table", exact: true })
+  await expect(
+    table.getByRole("heading", { name: "No plans yet" })
+  ).toBeVisible()
+  const createButton = table.getByRole("button", { name: "Create plan" })
+  await createButton.click()
+  await unlock.getByLabel("Shared editor passphrase").fill(editorPassphrase)
+  await unlock.getByRole("button", { name: "Unlock editing" }).click()
+  const create = page.getByRole("dialog", { name: "New plan" })
+  await create.getByRole("button", { name: "Cancel" }).click()
+  await expect(toolbar.getByRole("button", { name: "Edit mode" })).toBeVisible()
+  await createButton.click()
+  const name = `First plan ${info.project.name}`
+  await create.getByLabel("Plan name").fill(name)
+  await create.getByRole("button", { name: "Create plan" }).click()
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
+  await expect(
+    table.getByRole("heading", { name: "No interfaces yet" })
+  ).toBeVisible()
+  await expect(createButton).toHaveCount(0)
+})
+
 test("create a named plan and reopen it after signing out", async ({
   page,
 }, info) => {
   const name = `Packaging ${info.project.name}`
   await page.goto("/")
-  await workspaceAction(page, "Unlock editing")
-  const unlock = page.getByRole("dialog", { name: "Unlock editing" })
-  await unlock.getByLabel("Shared editor passphrase").fill(editorPassphrase)
-  await unlock.getByRole("button", { name: "Unlock editing" }).click()
+  await unlockEditing(page)
   await workspaceAction(page, "New plan")
   const create = page.getByRole("dialog", { name: "New plan" })
   await create.getByLabel("Plan name").fill(name)
   await create.getByRole("button", { name: "Create plan" }).click()
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
-  await workspaceAction(page, "Sign out")
+  await signOut(page)
   await expect(page.getByRole("button", { name: "New plan" })).toBeHidden()
   await page.reload()
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
@@ -242,7 +287,7 @@ test("edit server and VM interfaces through one editor and inspect them after si
   await vm.getByLabel("IPv4 address").fill("10.50.0.35")
   await saveComponent(vm)
 
-  await workspaceAction(page, "Sign out")
+  await signOut(page)
   await page.reload()
   await diagram.getByRole("button", { name: "Runtime", exact: true }).click()
   await expect(vm.getByText("Server B", { exact: true })).toBeVisible()

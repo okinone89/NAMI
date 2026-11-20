@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase, workspaceAction } from "./workspace-settings"
+import { editorPassphrase, signOut } from "./workspace-settings"
 
 async function openPlan(page: Page) {
   const session = await page.request.post("/api/editor-session", {
@@ -90,7 +90,7 @@ test("show the interface inventory without a connections panel", async ({
   page,
 }) => {
   await openPlan(page)
-  await workspaceAction(page, "Sign out")
+  await signOut(page)
   await page.getByRole("button", { name: "Table", exact: true }).click()
   const connections = page.getByRole("table", {
     name: "Connections",
@@ -104,7 +104,7 @@ test("inspect all endpoint profiles after activating a diagram link once", async
   page,
 }, info) => {
   await openPlan(page)
-  await workspaceAction(page, "Sign out")
+  await signOut(page)
   const enclosure = page.getByRole("group", {
     name: "Edge server host enclosure",
   })
@@ -196,7 +196,7 @@ test("edit a diagram connection and reopen the saved link as a visitor", async (
   expect(after.components).toEqual(before.components)
   expect(after.interfaces).toEqual(before.interfaces)
 
-  await workspaceAction(page, "Sign out")
+  await signOut(page)
   await page.reload()
   await page
     .getByRole("button", {
