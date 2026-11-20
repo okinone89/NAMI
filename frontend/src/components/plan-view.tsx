@@ -8,6 +8,7 @@ export type PlanViewProps = {
   updateFilter: (changes: Partial<PlanFilter>) => void
   plan: Plan
   canEdit: boolean
+  automaticIpAssignment?: boolean
   onSelectComponent: (componentId: string, onMove?: () => void) => void
   savePlan: SavePlanSnapshot
   refreshPlan?: () => void

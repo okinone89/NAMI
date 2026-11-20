@@ -13,13 +13,16 @@ import {
   previewAddressAllocation,
   type AddressAllocationPreview,
   type Plan,
+  type PlanInterface,
   type WithEditorAccess,
 } from "@/lib/plans"
 
 type Props = {
   plan: Plan
-  candidates: ReadonlySet<string>
+  candidates?: ReadonlySet<string>
   interfaceId?: string
+  draftInterfaces?: Pick<PlanInterface, "id" | "networkId" | "ipv4">[]
+  onUseSuggestion?: (ipv4: string) => void
   onClose: () => void
   onPlanChanged?: () => void
   withEditorAccess: WithEditorAccess
@@ -29,6 +32,8 @@ export function AddressAllocationDialog({
   plan,
   candidates,
   interfaceId,
+  draftInterfaces,
+  onUseSuggestion,
   onClose,
   onPlanChanged,
   withEditorAccess,
@@ -48,7 +53,7 @@ export function AddressAllocationDialog({
     const port = ports.get(id)
     const network = networkId ? networks.get(networkId) : undefined
     return port
-      ? `${components.get(port.componentId)} / ${port.name}${network ? ` · ${network}` : ""}`
+      ? `${components.get(port.componentId) || "New component"} / ${port.name || "New interface"}${network ? ` · ${network}` : ""}`
       : id
   }
 
@@ -63,7 +68,9 @@ export function AddressAllocationDialog({
     setFailure(undefined)
     try {
       setPreview(
-        await withEditorAccess(previewAddressAllocation(plan.id, selected))
+        await withEditorAccess(
+          previewAddressAllocation(plan.id, selected, draftInterfaces)
+        )
       )
     } catch (error) {
       setFailure(error)
@@ -74,6 +81,16 @@ export function AddressAllocationDialog({
 
   async function confirm() {
     if (!preview?.canApply) return
+    if (onUseSuggestion) {
+      const ipv4 = preview.assignments.find(
+        (assignment) => assignment.interfaceId === interfaceId
+      )?.ipv4
+      if (ipv4) {
+        onUseSuggestion(ipv4)
+        onClose()
+      }
+      return
+    }
     setBusy(true)
     setFailure(undefined)
     try {
@@ -154,7 +171,7 @@ export function AddressAllocationDialog({
             </legend>
             <div className="max-h-[50dvh] divide-y overflow-y-auto border">
               {plan.interfaces
-                .filter((port) => candidates.has(port.id))
+                .filter((port) => candidates?.has(port.id))
                 .map((port) => (
                   <label
                     key={port.id}
@@ -202,7 +219,7 @@ export function AddressAllocationDialog({
                     setNotice("")
                     setFailure(undefined)
                     setSelected((previous) =>
-                      previous.filter((id) => candidates.has(id))
+                      previous.filter((id) => candidates?.has(id))
                     )
                   }}
                 >

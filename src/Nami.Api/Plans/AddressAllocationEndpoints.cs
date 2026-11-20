@@ -31,14 +31,7 @@ internal static class AddressAllocationEndpoints
             !preview.Assignments.SequenceEqual(request.Assignments))
             return TypedResults.Conflict(preview);
 
-        var changes = preview.Assignments.Where(assignment => assignment.Status == AddressAllocation.Proposed)
-            .ToDictionary(assignment => assignment.InterfaceId, assignment => assignment.Ipv4);
-        var proposed = plan with
-        {
-            Interfaces = plan.Interfaces.Select(port => changes.TryGetValue(port.Id, out var ipv4)
-                ? port with { Ipv4 = ipv4 }
-                : port).ToArray()
-        };
+        var proposed = AddressAllocation.Apply(plan, preview);
         try
         {
             var saved = await store.SaveSnapshotAsync(proposed, [], cancellationToken);
@@ -65,9 +58,25 @@ internal static class AddressAllocationEndpoints
                 title: "Select one or more unique interface IDs.");
 
         var plan = await store.GetAsync(id, cancellationToken);
-        return plan is null
-            ? TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "Plan not found")
-            : TypedResults.Ok(AddressAllocation.Preview(plan, request.InterfaceIds!));
+        if (plan is null)
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "Plan not found");
+
+        if (request.DraftInterfaces is { } draft)
+        {
+            if (!IsValidSelection(draft.Select(port => port?.Id ?? "").ToArray()))
+                return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest,
+                    title: "Draft interfaces must have unique IDs.");
+
+            var draftIds = draft.Select(port => port.Id).ToHashSet(StringComparer.Ordinal);
+            plan = plan with
+            {
+                Interfaces = plan.Interfaces.Where(port => !draftIds.Contains(port.Id))
+                    .Concat(draft.Select(port => new PlanInterface(port.Id, "", "", port.NetworkId,
+                        string.IsNullOrWhiteSpace(port.Ipv4) ? null : port.Ipv4.Trim()))).ToArray()
+            };
+        }
+
+        return TypedResults.Ok(AddressAllocation.Preview(plan, request.InterfaceIds!));
     }
 
     private static bool IsValidSelection(IReadOnlyList<string>? ids) =>
@@ -75,8 +84,12 @@ internal static class AddressAllocationEndpoints
         ids.Distinct(StringComparer.Ordinal).Count() == ids.Count;
 }
 
-/// <summary>The stable IDs of interfaces selected for IPv4 allocation.</summary>
-internal sealed record PreviewAddressAllocationRequest(IReadOnlyList<string>? InterfaceIds);
+/// <summary>The selected IDs and optional unsaved interface address edits to preview.</summary>
+internal sealed record PreviewAddressAllocationRequest(
+    IReadOnlyList<string>? InterfaceIds, IReadOnlyList<DraftInterfaceAddress>? DraftInterfaces = null);
+
+/// <summary>Unsaved addressing for one interface.</summary>
+internal sealed record DraftInterfaceAddress(string Id, string? NetworkId, string? Ipv4);
 
 /// <summary>A confirmation of the proposed assignments for all selected interfaces.</summary>
 internal sealed record CommitAddressAllocationRequest(

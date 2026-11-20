@@ -7,6 +7,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { NativeSelect } from "@/components/ui/native-select"
 import {
   builtInSymbols,
   componentShapes,
@@ -20,8 +21,6 @@ import type { Component } from "@/lib/plans"
 
 const iconFormats = ["image/png", "image/jpeg", "image/webp"]
 const maxIconKibibytes = 96
-
-const selectClass = "min-h-11 border border-input bg-background px-2"
 
 export function ComponentAppearanceFields({
   component,
@@ -93,9 +92,8 @@ export function ComponentAppearanceFields({
     <FieldGroup className="gap-3 sm:grid sm:grid-cols-2">
       <Field>
         <FieldLabel htmlFor={`${id}-kind`}>Representation</FieldLabel>
-        <select
+        <NativeSelect
           id={`${id}-kind`}
-          className={selectClass}
           value={appearance?.kind ?? ""}
           onChange={(event) => changeRepresentation(event.target.value)}
         >
@@ -103,14 +101,13 @@ export function ComponentAppearanceFields({
           <option value="builtIn">Built-in symbol</option>
           <option value="custom">Custom icon</option>
           <option value="shape">Labeled shape</option>
-        </select>
+        </NativeSelect>
       </Field>
       {appearance?.kind === "builtIn" && (
         <Field>
           <FieldLabel htmlFor={`${id}-symbol`}>Built-in symbol</FieldLabel>
-          <select
+          <NativeSelect
             id={`${id}-symbol`}
-            className={selectClass}
             value={appearance.symbol}
             onChange={(event) =>
               onChange({
@@ -124,7 +121,7 @@ export function ComponentAppearanceFields({
                 {label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </Field>
       )}
       {appearance?.kind === "custom" && (
@@ -166,9 +163,8 @@ export function ComponentAppearanceFields({
         <>
           <Field>
             <FieldLabel htmlFor={`${id}-shape`}>Shape</FieldLabel>
-            <select
+            <NativeSelect
               id={`${id}-shape`}
-              className={selectClass}
               value={appearance.shape}
               onChange={(event) =>
                 onChange({
@@ -182,7 +178,7 @@ export function ComponentAppearanceFields({
                   {label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </Field>
           <Field>
             <FieldLabel htmlFor={`${id}-shape-label`}>Shape label</FieldLabel>

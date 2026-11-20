@@ -76,15 +76,16 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
         await SaveSnapshotAsync(plan, approvals, cancellationToken) is not null;
 
     internal Task<Plan?> SaveSnapshotAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
-        CancellationToken cancellationToken) =>
-        SaveSnapshotAsync(plan, approvals, updateInventoryUndo: false, null, cancellationToken);
+        CancellationToken cancellationToken, bool automaticIpAssignment = false) =>
+        SaveSnapshotAsync(plan, approvals, updateInventoryUndo: false, null, cancellationToken, automaticIpAssignment);
 
     internal Task<Plan?> SaveInventoryAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
         InventoryUndoReceipt? inventoryUndo, CancellationToken cancellationToken) =>
         SaveSnapshotAsync(plan, approvals, updateInventoryUndo: true, inventoryUndo, cancellationToken);
 
     private async Task<Plan?> SaveSnapshotAsync(Plan plan, IReadOnlyList<AddressConflictApproval> approvals,
-        bool updateInventoryUndo, InventoryUndoReceipt? inventoryUndo, CancellationToken cancellationToken)
+        bool updateInventoryUndo, InventoryUndoReceipt? inventoryUndo, CancellationToken cancellationToken,
+        bool automaticIpAssignment = false)
     {
         PlanValidation.Validate(plan);
         var current = await GetAsync(plan.Id, cancellationToken);
@@ -92,6 +93,8 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
             return null;
 
         InventoryNames.Validate(plan, current);
+        if (automaticIpAssignment)
+            plan = AddressAllocation.AssignNewAttachments(current, plan);
         var issues = AddressValidation.BlockingIssues(current, plan, approvals);
         if (issues.Count > 0)
             throw new AddressValidationException(issues);

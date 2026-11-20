@@ -1,4 +1,4 @@
-import { IconLink, IconX } from "@tabler/icons-react"
+import { IconLink, IconWand, IconX } from "@tabler/icons-react"
 import { useId } from "react"
 import { PersistedIpv4Issues } from "@/components/ipv4-issues"
 import { ProtocolProfileFields } from "@/components/protocol-profile-fields"
@@ -11,6 +11,7 @@ import {
   FieldSet,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { NativeSelect } from "@/components/ui/native-select"
 import type { AddressIssue } from "@/lib/address-issues"
 import type { PlanInterface, PlanNetwork } from "@/lib/plans"
 
@@ -19,6 +20,7 @@ export function ComponentInterfaceFields({
   networks,
   addressIssues = [],
   onChange,
+  onSuggestIpv4,
   onDiscard,
   allowLink,
 }: {
@@ -27,6 +29,7 @@ export function ComponentInterfaceFields({
   networks: PlanNetwork[]
   addressIssues?: AddressIssue[]
   onChange: (port: PlanInterface) => void
+  onSuggestIpv4?: () => void
   onDiscard?: () => void
 }) {
   const id = useId()
@@ -50,13 +53,12 @@ export function ComponentInterfaceFields({
         </Field>
         <Field>
           <FieldLabel htmlFor={`${id}-network`}>Network</FieldLabel>
-          <select
+          <NativeSelect
             id={`${id}-network`}
             value={port.networkId ?? ""}
             onChange={(event) =>
               onChange({ ...port, networkId: event.target.value || null })
             }
-            className="min-h-11 min-w-0 border border-input bg-background px-2"
           >
             <option value="">No network</option>
             {networks.map((network) => (
@@ -64,7 +66,7 @@ export function ComponentInterfaceFields({
                 {network.name}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </Field>
         <Field>
           <FieldLabel htmlFor={`${id}-ipv4`}>IPv4 address</FieldLabel>
@@ -78,6 +80,17 @@ export function ComponentInterfaceFields({
             autoComplete="off"
             className="min-h-11"
           />
+          {onSuggestIpv4 && (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11 self-start"
+              onClick={onSuggestIpv4}
+            >
+              <IconWand aria-hidden="true" data-icon="inline-start" /> Suggest
+              IPv4
+            </Button>
+          )}
         </Field>
       </FieldGroup>
       <PersistedIpv4Issues issues={addressIssues} />

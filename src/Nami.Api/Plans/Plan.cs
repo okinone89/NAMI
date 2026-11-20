@@ -24,7 +24,9 @@ public sealed record PlanNetwork(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<Ipv4Range>? ExcludedIpv4Ranges = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    LinkMedium? Medium = null);
+    LinkMedium? Medium = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Color = null);
 
 public sealed record Component(
     string Id,

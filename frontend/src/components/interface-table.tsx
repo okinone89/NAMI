@@ -49,6 +49,7 @@ const collator = new Intl.Collator(undefined, {
 export function InterfaceTable({
   plan,
   canEdit,
+  automaticIpAssignment,
   onSelectComponent,
   savePlan,
   refreshPlan,
@@ -150,7 +151,7 @@ export function InterfaceTable({
       <>
         <div
           className={cn(
-            "flex flex-wrap items-end gap-3 border-b bg-background p-4",
+            "flex flex-wrap items-center gap-2 border-b bg-background px-4 py-2",
             draftPort && "sticky top-0 z-10"
           )}
         >
@@ -489,7 +490,11 @@ export function InterfaceTable({
         >
           <InventoryDialog
             planId={plan.id}
-            bulk={{ interfaceIds: bulkSelection, networks: plan.networks }}
+            bulk={{
+              interfaceIds: bulkSelection,
+              networks: plan.networks,
+              automaticIpAssignment,
+            }}
             close={() => setBulkSelection(undefined)}
             withEditorAccess={withEditorAccess}
             renderActions={(review) => (

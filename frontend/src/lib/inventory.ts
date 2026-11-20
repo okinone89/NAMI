@@ -42,6 +42,7 @@ export type InventoryImportRow = Partial<Record<InventoryField, string>> & {
   skipConnection?: boolean
 }
 export type InventoryPreviewRequest = {
+  automaticIpAssignment?: boolean
   rows: InventoryImportRow[]
   answers?: Record<string, string>
   keepAddressConflicts?: AddressConflictApproval[]
@@ -72,6 +73,7 @@ export type InventoryPreviewRow = {
   connections?: { id: string; label: string }[]
 }
 export type InventoryPreview = {
+  unassignedIpv4Count?: number
   links?: { rowNumbers: number[]; summary: string | null }[]
   decisions?: {
     id: string

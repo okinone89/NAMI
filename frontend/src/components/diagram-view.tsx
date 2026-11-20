@@ -32,7 +32,7 @@ import { InterfaceLinkDialog } from "./interface-link-dialog"
 import { builtInSymbols } from "@/lib/component-appearance"
 import { duplicateComponent, deleteComponent } from "@/lib/component-actions"
 import { confirmLinkRemoval } from "@/lib/link-labels"
-import { subnetMask } from "@/lib/ipv4-subnet"
+import { interfaceAddressLabel } from "@/lib/ipv4-subnet"
 import { networkColor } from "@/lib/network-color"
 import { useTopologyDrag } from "@/hooks/use-topology-drag"
 import {
@@ -159,8 +159,8 @@ export function DiagramView({
 
   const link = plan.links.find(({ id }) => id === linkSelection)
   const savedLayout = useMemo(
-    () => layoutDiagram(plan.components, plan.interfaces, plan.networks),
-    [plan.components, plan.interfaces, plan.networks]
+    () => layoutDiagram(plan.components, plan.interfaces),
+    [plan.components, plan.interfaces]
   )
   const scope = useMemo(
     () =>
@@ -376,16 +376,15 @@ export function DiagramView({
                 .join(" · ")}
               className="block w-full border-l-[3px] pl-1 text-[10px] leading-3"
               style={{
-                borderColor: network ? networkColor(network.id) : undefined,
+                borderColor: network ? networkColor(network) : undefined,
               }}
             >
               <span className="block truncate">
                 {network?.name ?? "No network"}
               </span>
-              <span className="block">{port.ipv4 ?? "Unassigned"}</span>
-              {network?.subnet && (
-                <span className="block">Mask {subnetMask(network.subnet)}</span>
-              )}
+              <span className="block">
+                {interfaceAddressLabel(port.ipv4, network?.subnet)}
+              </span>
             </span>
           )
         })}

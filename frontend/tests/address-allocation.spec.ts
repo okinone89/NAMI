@@ -109,6 +109,152 @@ test("a saved pool skips assigned, reserved, and excluded IPv4 addresses", async
   ).toHaveValue("192.168.1.20")
 })
 
+test("suggest an IPv4 address for a draft interface without saving the component", async ({
+  page,
+}) => {
+  const path = await openAllocationPlan(page, "192.168.1.0/24")
+  await page.getByRole("button", { name: "Filler PLC", exact: true }).click()
+  const editor = page.getByRole("dialog", { name: "Filler PLC" })
+  await editor
+    .getByRole("group", { name: "LAN B" })
+    .getByLabel("IPv4 address")
+    .fill("192.168.1.1")
+  await editor.getByRole("button", { name: "Add interface" }).click()
+  const port = editor.getByRole("group", { name: "New interface" })
+  await port.getByLabel("Network", { exact: true }).selectOption("cell")
+  const name = port.getByLabel("Interface name")
+  expect(
+    await port
+      .getByLabel("Network", { exact: true })
+      .evaluate((select) => select.getBoundingClientRect().height)
+  ).toBe(await name.evaluate((input) => input.getBoundingClientRect().height))
+  await port.getByRole("button", { name: "Suggest IPv4" }).click()
+  const suggestion = page.getByRole("dialog", { name: "Suggest IPv4 address" })
+  await suggestion.getByRole("button", { name: "Preview suggestion" }).click()
+  await expect(
+    suggestion.getByText("192.168.1.2", { exact: true })
+  ).toBeVisible()
+  await suggestion.getByRole("button", { name: "Accept suggestion" }).click()
+  await expect(port.getByLabel("IPv4 address")).toHaveValue("192.168.1.2")
+  const before: Plan = await (await page.request.get(path)).json()
+  expect(before.interfaces).toHaveLength(4)
+  expect(before.interfaces.find(({ id }) => id === "plc-b")?.ipv4).toBeNull()
+  await name.fill("LAN E")
+  await editor.getByRole("button", { name: "Save component" }).click()
+  await expect(editor).toBeHidden()
+  const after: Plan = await (await page.request.get(path)).json()
+  expect(after.interfaces.find((item) => item.name === "LAN E")?.ipv4).toBe(
+    "192.168.1.2"
+  )
+})
+
+test("automatic assignment is shared across views and saves blank after pool exhaustion", async ({
+  page,
+}) => {
+  const path = await openAllocationPlan(page, "192.168.1.0/24")
+  const plan: Plan = await (await page.request.get(path)).json()
+  const [network] = plan.networks
+  const configured = await page.request.put(path, {
+    data: {
+      ...plan,
+      networks: [
+        {
+          ...network,
+          allocationPool: { start: "192.168.1.20", end: "192.168.1.24" },
+          excludedIpv4Ranges: [{ start: "192.168.1.21" }],
+        },
+      ],
+      interfaces: [
+        ...plan.interfaces.map((port) =>
+          port.id === "plc-d" ? { ...port, networkId: null } : port
+        ),
+        {
+          id: "plc-e",
+          componentId: "plc",
+          name: "LAN E",
+          networkId: null,
+          ipv4: null,
+        },
+      ],
+    } satisfies Plan,
+  })
+  expect(configured.ok()).toBe(true)
+  await page.reload()
+  const automatic = page.getByRole("checkbox", {
+    name: "Automatic IP assignment",
+  })
+  await expect(automatic).not.toBeChecked()
+  await automatic.check()
+  await page.getByRole("button", { name: "Add", exact: true }).click()
+  await page.getByRole("menuitem", { name: "Add component" }).click()
+
+  async function saveComponent(name: string, manualAddress?: string) {
+    const editor = page.getByRole("dialog", { name: "Add component" })
+    await editor.getByLabel("Component name").fill(name)
+    await editor.getByLabel("Component type").fill("PLC")
+    for (const [portName, address] of [
+      ["LAN A", ""],
+      ["LAN B", manualAddress],
+    ] as const) {
+      if (address === undefined) continue
+      await editor.getByRole("button", { name: "Add interface" }).click()
+      const port = editor.getByRole("group", { name: "New interface" })
+      await port.getByLabel("Network", { exact: true }).selectOption("cell")
+      if (address) await port.getByLabel("IPv4 address").fill(address)
+      await port.getByLabel("Interface name").fill(portName)
+    }
+    await editor.getByRole("button", { name: "Save component" }).click()
+    await expect(editor).toBeHidden()
+  }
+
+  await saveComponent("New PLC", "192.168.1.50")
+  await expect(page.getByText("192.168.1.22/24", { exact: true })).toBeVisible()
+  await expect(page.getByText("192.168.1.50/24", { exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "Table", exact: true }).click()
+  await expect(automatic).toBeChecked()
+  await expect(
+    page.getByLabel("IPv4 address for Filler PLC / LAN B", { exact: true })
+  ).toHaveValue("")
+  await page
+    .getByRole("combobox", { name: "Network for Filler PLC / LAN D" })
+    .selectOption("cell")
+  await page.getByRole("button", { name: "Save interface" }).click()
+  await expect(
+    page.getByLabel("IPv4 address for Filler PLC / LAN D", { exact: true })
+  ).toHaveValue("192.168.1.23")
+
+  const bulkAddress = page.getByLabel("IPv4 address for Filler PLC / LAN E", {
+    exact: true,
+  })
+  await page
+    .getByRole("checkbox", { name: "Select Filler PLC / LAN E" })
+    .check()
+  await page.getByRole("button", { name: "Edit selected interfaces" }).click()
+  const bulk = page.getByRole("dialog", { name: "Bulk edit interfaces" })
+  await bulk
+    .getByLabel("Network membership")
+    .selectOption({ label: "Cell LAN" })
+  await bulk.getByRole("button", { name: "Preview changes" }).click()
+  await expect(bulk.getByRole("group", { name: "After" })).toContainText(
+    "192.168.1.24"
+  )
+  const pending: Plan = await (await page.request.get(path)).json()
+  expect(pending.interfaces.find(({ id }) => id === "plc-e")?.ipv4).toBeNull()
+  await bulk.getByRole("button", { name: "Apply bulk changes" }).click()
+  await expect(bulkAddress).toHaveValue("192.168.1.24")
+
+  await page.getByRole("button", { name: "Add component", exact: true }).click()
+  await saveComponent("Queued PLC")
+  await expect(
+    page.getByText("1 interface was saved without IPv4.")
+  ).toBeVisible()
+  await expect(
+    page.getByLabel("IPv4 address for Queued PLC / LAN A", { exact: true })
+  ).toHaveValue("")
+  await page.reload()
+  await expect(automatic).toBeChecked()
+})
+
 test("batch assignment shows exhaustion and requires confirmation of a refreshed preview", async ({
   page,
   request,

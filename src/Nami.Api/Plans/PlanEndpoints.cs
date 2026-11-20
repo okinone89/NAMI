@@ -50,7 +50,8 @@ internal static class PlanEndpoints
         var plan = request.ApplyTo(new Plan(id, request.Name, request.Revision));
         try
         {
-            var saved = await store.SaveSnapshotAsync(plan, request.KeepAddressConflicts ?? [], cancellationToken);
+            var saved = await store.SaveSnapshotAsync(plan, request.KeepAddressConflicts ?? [], cancellationToken,
+                request.AutomaticIpAssignment);
             if (saved is not null)
                 return TypedResults.Ok(saved);
         }
@@ -69,7 +70,7 @@ internal static class PlanEndpoints
         catch (ArgumentException)
         {
             return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest,
-                title: "Check plan names, IDs, topology references, and protocol profiles");
+                title: "Check plan names, IDs, topology references, network colors, and protocol profiles");
         }
 
         return await store.GetAsync(id, cancellationToken) is null
@@ -89,4 +90,5 @@ internal sealed record SavePlanRequest : PlanTopology
     public required string Name { get; init; }
     public required long Revision { get; init; }
     public IReadOnlyList<AddressConflictApproval>? KeepAddressConflicts { get; init; }
+    public bool AutomaticIpAssignment { get; init; }
 }

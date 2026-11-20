@@ -122,12 +122,19 @@ test("editors can add and clear a subnet and correct an out-of-range address", a
   await mask.fill("255.255.255.128")
   await saveNetwork.click()
   await expect(network).toBeHidden()
-  for (const region of ["Networks", "Diagram"])
+  for (const [region, address] of [
+    ["Networks", "192.168.1.0/25"],
+    ["Diagram", "192.168.1.10/25"],
+  ]) {
     await expect(
       page
         .getByRole("region", { name: region, exact: true })
-        .getByText("Mask 255.255.255.128", { exact: true })
+        .getByText(address, { exact: true })
     ).toBeVisible()
+  }
+  await expect(
+    page.getByText("Mask 255.255.255.128", { exact: true })
+  ).toHaveCount(0)
 
   await page.getByRole("button", { name: "Table", exact: true }).click()
   const address = page.getByRole("textbox", {

@@ -58,6 +58,7 @@ export type InventoryReviewActions = InventoryReview & {
 type BulkSelection = {
   interfaceIds: string[]
   networks: PlanNetwork[]
+  automaticIpAssignment?: boolean
 }
 
 export function InventoryDialog({
@@ -122,6 +123,8 @@ export function InventoryDialog({
   }
 
   async function preview(request: InventoryPreviewRequest) {
+    if (bulk?.automaticIpAssignment)
+      request = { ...request, automaticIpAssignment: true }
     setBusy(true)
     setError("")
     try {
@@ -257,6 +260,16 @@ export function InventoryDialog({
         {review && (
           <div className="flex flex-col gap-2">
             <h3 className="font-medium">Bulk edit preview</h3>
+            {review.preview.unassignedIpv4Count && (
+              <p role="status">
+                The allocation pool ran out of addresses.{" "}
+                {review.preview.unassignedIpv4Count}{" "}
+                {review.preview.unassignedIpv4Count === 1
+                  ? "interface will"
+                  : "interfaces will"}{" "}
+                be saved without IPv4.
+              </p>
+            )}
             {review.preview.rows.map((row) => (
               <PreviewRow
                 key={row.rowNumber}

@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Locator } from "@playwright/test"
+import type { Plan } from "../src/lib/plans"
 import { editorPassphrase, workspaceAction } from "./workspace-settings"
 
 test("switch views while loading and browse the empty plan", async ({
@@ -79,6 +80,10 @@ test("manage named networks in the open plan", async ({ page }, info) => {
   )
   await page.goto(`/?plan=${opened.id}`)
   await createNetwork(page, "Plant")
+  const created: Plan = await (
+    await page.request.get(`/api/plans/${opened.id}`)
+  ).json()
+  expect(created.networks[0].color).toMatch(/^#[0-9a-f]{6}$/)
   await page
     .getByRole("button", { name: "Edit network Plant", exact: true })
     .click()
@@ -87,6 +92,7 @@ test("manage named networks in the open plan", async ({ page }, info) => {
     .getByLabel("Network type")
     .selectOption({ label: "Fiber optic" })
   await network.getByLabel("Network name").fill("Plant Backbone")
+  await network.getByLabel("Network color").fill("#123456")
   await network.getByRole("button", { name: "Save network" }).click()
   await expect(
     page.getByRole("button", { name: "Edit network Plant Backbone" })
@@ -98,6 +104,40 @@ test("manage named networks in the open plan", async ({ page }, info) => {
   await expect(
     page.getByRole("button", { name: "Edit network Plant Backbone" })
   ).toBeVisible()
+  await expect(
+    page.getByRole("listitem").filter({
+      has: page.getByRole("button", { name: "Plant Backbone", exact: true }),
+    })
+  ).toHaveCSS("border-left-color", "rgb(18, 52, 86)")
+  const exported = await page.request.get(`/api/plans/${opened.id}/package`)
+  expect(exported.ok()).toBe(true)
+  const imported = await page.request.post("/api/plans/import", {
+    data: await exported.json(),
+  })
+  expect(imported.status()).toBe(201)
+  const copy: Plan = await imported.json()
+  expect(copy.id).not.toBe(opened.id)
+  expect(copy.networks[0].color).toBe("#123456")
+})
+
+test("read import and export guidance in either view without unlocking editing", async ({
+  page,
+}) => {
+  await page.goto("/")
+  const help = page.getByRole("dialog", { name: "Import/export help" })
+  for (const view of ["Diagram", "Table"]) {
+    await page.getByRole("button", { name: view, exact: true }).click()
+    await workspaceAction(page, "Import/export help")
+    await expect(help).toBeVisible()
+    await expect(help.getByText(/Blank cells preserve/)).toBeVisible()
+    await expect(help.getByText(/Duplicate IPv4 addresses/)).toBeVisible()
+    await expect(help.getByText(/independent copy/)).toBeVisible()
+    await expect(
+      help.getByRole("heading", { name: "PDF", exact: true })
+    ).toBeVisible()
+    await help.getByRole("button", { name: "Close", exact: true }).click()
+    await expect(help).toBeHidden()
+  }
 })
 
 async function createUnlockedPlan(page: Page, name: string) {

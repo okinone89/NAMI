@@ -46,7 +46,7 @@ export function DiagramLinks({
   const components = new Map(plan.components.map(({ id, name }) => [id, name]))
   const interfaces = new Map(plan.interfaces.map(({ id, name }) => [id, name]))
   const ports = new Map(plan.interfaces.map((p) => [p.id, p]))
-  const networks = new Map(plan.networks.map((n) => [n.id, n.name]))
+  const networks = new Map(plan.networks.map((n) => [n.id, n]))
   const componentBoxes = Array.from(boxes.values())
   const enclosures = Array.from(hostEnclosures)
   const owner = new Map(plan.components.map((c) => [c.id, c.hostId ?? c.id]))
@@ -118,9 +118,10 @@ export function DiagramLinks({
     const from = linkEndpointLabel(link.source, components, interfaces)
     const to = linkEndpointLabel(link.target, components, interfaces)
     const networkLabel =
-      networkIds.map((id) => networks.get(id)).join(" / ") || "Unassigned"
-    const color =
-      networkIds.length === 1 ? networkColor(networkIds[0]) : "currentColor"
+      networkIds.map((id) => networks.get(id)?.name).join(" / ") || "Unassigned"
+    const network =
+      networkIds.length === 1 ? networks.get(networkIds[0]) : undefined
+    const color = network ? networkColor(network) : "currentColor"
     const label = `${from} to ${to} (${linkMediumLabels[link.medium]})`
     return (
       <g
