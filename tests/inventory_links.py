@@ -118,6 +118,53 @@ class InventoryLinks(unittest.TestCase):
                 self.assertEqual(self.post("commit", {"rows": rows, "stateToken": preview["stateToken"]})[0], 409)
                 self.assertEqual(request(self.address, self.path)[:2], (200, self.plan))
 
+    def test_skipping_bad_partner_keeps_inventory_and_other_connections_from_the_same_source(self):
+        rows = [
+            {"rowNumber": 2, "componentName": "Sensor", "interfaceName": "X1", "networkName": "Cell A",
+             "ipv4": "192.168.1.57", "linkPartner": "Unknown switch", "partnerPort": "P1"},
+            {"rowNumber": 3, "componentName": "Sensor", "interfaceName": "X1", "linkPartner": "Unknown switch",
+             "partnerPort": "P1"},
+            {"rowNumber": 4, "componentName": "Sensor", "interfaceName": "X1", "linkPartner": "Capper PLC",
+             "connectionType": "Wired"},
+        ]
+        blocked = self.preview(rows)
+        decision, = blocked["decisions"]
+        self.assertEqual(decision["rowNumbers"], [2, 3])
+        self.assertEqual(decision["scope"], "connection")
+        self.assertFalse(blocked["canApply"])
+        for row in rows[:2]:
+            row["skipConnection"] = True
+        saved = self.commit(rows)["plan"]
+        sensor, = [c for c in saved["components"] if c["name"] == "Sensor"]
+        port, = [p for p in saved["interfaces"] if p["componentId"] == sensor["id"]]
+        self.assertEqual((port["name"], port["networkId"], port["ipv4"]), ("X1", "cell-a", "192.168.1.57"))
+        link, = saved["links"]
+        self.assertEqual({link["source"]["componentId"], link["target"]["componentId"]}, {sensor["id"], "plc-b"})
+
+    def test_skipped_conflicting_move_keeps_the_installed_link(self):
+        original = self.put({**self.plan, "links": [{
+            "id": "installed", "source": {"componentId": "plc-a", "interfaceId": "lan-a"},
+            "target": {"componentId": "plc-b", "interfaceId": "lan-b"}, "medium": "wired",
+        }]})
+        rows = [
+            {"rowNumber": 2, "interfaceId": "lan-a", "ipv4": "192.168.1.61", "linkPartner": "Servo",
+             "partnerPort": "X1", "connectionType": "Wired", "linkProtocol": "EtherCAT"},
+            {"rowNumber": 3, "componentName": "Servo", "interfaceName": "X1", "linkPartner": 'Filler, "Line A"',
+             "partnerPort": "LAN A", "connectionType": "FO", "linkProtocol": "PROFINET"},
+        ]
+        blocked = self.preview(rows)
+        decision, = blocked["decisions"]
+        self.assertEqual(decision["rowNumbers"], [2, 3])
+        self.assertEqual(decision["scope"], "connection")
+        self.assertEqual(self.post("commit", {"rows": rows, "stateToken": blocked["stateToken"]})[0], 409)
+        corrected = self.preview([rows[0], {**rows[1], "connectionType": "Wired", "linkProtocol": "EtherCAT"}])
+        self.assertTrue(corrected["canApply"], corrected)
+        self.assertEqual(corrected["decisions"], [])
+        saved = self.commit([{**row, "skipConnection": True} for row in rows])["plan"]
+        self.assertEqual(saved["links"], original["links"])
+        self.assertEqual(next(p["ipv4"] for p in saved["interfaces"] if p["id"] == "lan-a"), "192.168.1.61")
+        self.assertTrue(any(p["name"] == "X1" for p in saved["interfaces"]))
+
     def test_stale_metadata_requires_fresh_confirmation_and_retains_new_link_identity(self):
         original = self.put({**self.plan, "links": [{
             "id": "installed", "source": {"componentId": "plc-a", "interfaceId": "lan-a"},

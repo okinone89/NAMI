@@ -2,7 +2,7 @@ namespace Nami.Api.Plans;
 
 /// <summary>An explicit choice needed to interpret one or more inventory rows.</summary>
 internal sealed record InventoryDecision(string Id, string Title, string Message,
-    IReadOnlyList<int> RowNumbers, IReadOnlyList<InventoryDecisionChoice> Choices);
+    IReadOnlyList<int> RowNumbers, IReadOnlyList<InventoryDecisionChoice> Choices, string? Scope = null);
 
 /// <summary>A currently available answer to an inventory decision.</summary>
 internal sealed record InventoryDecisionChoice(string Id, string Label);
@@ -13,7 +13,7 @@ internal sealed class InventoryDecisions(IReadOnlyDictionary<string, string>? an
     public IReadOnlyList<InventoryDecision> Pending => pending.Values.Select(item => item.Decision).ToArray();
 
     public string? Choose(string kind, string scope, string name, string title, string message, int rowNumber,
-        IEnumerable<InventoryDecisionChoice> options)
+        IEnumerable<InventoryDecisionChoice> options, string? decisionScope = null)
     {
         var choices = options.OrderBy(choice => choice.Id, StringComparer.Ordinal).ToArray();
         // If the candidate set changes, the engineer must review the new choices.
@@ -24,7 +24,7 @@ internal sealed class InventoryDecisions(IReadOnlyDictionary<string, string>? an
         if (!pending.TryGetValue(id, out var entry))
         {
             var rows = new List<int>();
-            entry = (new(id, title, message, rows, choices), rows);
+            entry = (new(id, title, message, rows, choices, decisionScope), rows);
             pending.Add(id, entry);
         }
         if (entry.Rows.Count == 0 || entry.Rows[^1] != rowNumber)
