@@ -47,6 +47,28 @@ class InventoryRenames(unittest.TestCase):
         choice, = [item for item in decision["choices"] if item["label"].startswith(label)]
         self.draft["answers"][decision["id"]] = choice["id"]
 
+    def test_split_network_and_address_identify_component_and_port_in_either_order(self):
+        network, address = {"networkName": "Cell A"}, {"ipv4": "192.168.1.20"}
+        for fields in ((network, address), (address, network)):
+            with self.subTest(fields=fields):
+                self.draft = {"answers": {}, "rows": [
+                    {"rowNumber": number, "componentName": "Capper 2", "interfaceName": "Control", **value}
+                    for number, value in enumerate(fields, 2)]}
+                for kind in ("component", "port"):
+                    decision, = self.preview()["decisions"]
+                    self.assertEqual(decision["rowNumbers"], [2, 3])
+                    self.answer(decision, "Rename existing " + kind)
+                status, saved = self.commit(self.preview())
+                self.assertEqual(status, 200, saved)
+                self.assertEqual(saved["plan"]["components"], [
+                    self.plan["components"][0], {**self.plan["components"][1], "name": "Capper 2"}])
+                self.assertEqual(saved["plan"]["interfaces"], [
+                    self.plan["interfaces"][0], {**self.plan["interfaces"][1], "name": "Control"},
+                    self.plan["interfaces"][2]])
+                self.assertEqual(saved["plan"]["links"], self.plan["links"])
+                self.assertEqual(request(self.address, self.path + "/inventory/undo",
+                                         "POST", saved["undo"], self.cookie)[0], 200)
+
     def test_cross_network_address_creates_an_independent_component_without_a_decision(self):
         self.plan["networks"].append({"id": "cell-b", "name": "Cell B", "subnet": "192.168.1.0/24"})
         self.save(self.plan)
@@ -57,6 +79,25 @@ class InventoryRenames(unittest.TestCase):
         self.assertEqual(status, 200, result)
         self.assertEqual(result["plan"]["components"][:2], self.plan["components"])
         self.assertEqual(result["plan"]["interfaces"][-2]["networkId"], "cell-b")
+
+    def test_rename_evidence_distinguishes_parallel_installed_cables(self):
+        self.plan["links"].append({**self.plan["links"][0], "id": "backup"})
+        self.save(self.plan)
+        decision, = self.preview()["decisions"]
+        for cable in ("cable", "backup"):
+            self.assertIn(f'Filler, "Line A" / LAN A ↔ Capper PLC / LAN B ({cable})', decision["message"])
+
+    def test_conflicting_repeated_addresses_require_correction_before_a_rename(self):
+        row = self.draft["rows"][0]
+        self.draft["rows"].append({**row, "rowNumber": 4, "ipv4": "192.168.1.99"})
+        preview = self.preview()
+        decision, = preview["decisions"]
+        self.assertEqual(decision["title"], "Review interface values")
+        self.assertEqual(decision["rowNumbers"], [2, 4])
+        self.assertEqual(self.commit(preview), (409, preview))
+        self.draft["rows"][-1]["skip"] = True
+        rename, = self.preview()["decisions"]
+        self.assertEqual(rename["title"], "Confirm component rename")
 
     def test_ambiguous_address_requires_selecting_the_specific_owner(self):
         self.plan["interfaces"][0]["ipv4"] = "192.168.1.20"

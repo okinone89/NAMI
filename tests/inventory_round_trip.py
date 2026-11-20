@@ -71,8 +71,24 @@ class InventoryRoundTrip(unittest.TestCase):
             {"id": "b", "source": {"componentId": "c"}, "target": {"componentId": "s", "interfaceId": "s1"},
              "medium": "wired"},
         ])
+        for cable_id, medium, protocol in [("c", "fiberOptic", "OPC UA"), ("d", "wired", "EtherCAT")]:
+            source["links"].append({**source["links"][0], "id": cable_id, "medium": medium, "protocol": protocol})
         self.assertEqual(request(address, origin, "PUT", source, cookie)[0], 200)
         rows = export(address, origin)
+        status, unchanged, _ = request(address, origin + "/inventory/preview", "POST", draft(rows), cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(unchanged["decisions"], [])
+        self.assertTrue(all(not row["errors"] and not row["hasChanges"] for row in unchanged["rows"]), unchanged)
+        removal = draft(rows)
+        switch_row = next(row for row in removal["rows"] if row.get("interfaceName") == "P1")
+        switch_row["removeLinkIds"] = ["c"]
+        status, review, _ = request(address, origin + "/inventory/preview", "POST", removal, cookie)
+        self.assertEqual(status, 200)
+        status, removed, _ = request(address, origin + "/inventory/commit", "POST",
+                                     {**removal, "stateToken": review["stateToken"]}, cookie)
+        self.assertEqual(status, 200, removed)
+        self.assertEqual([link["id"] for link in removed["plan"]["links"]], ["a", "b", "d"])
+        self.assertEqual(request(address, origin + "/inventory/undo", "POST", removed["undo"], cookie)[0], 200)
         inventory = destination + "/inventory"
         first = draft(reversed(rows))
         status, preview, _ = request(address, inventory + "/preview", "POST", first, cookie)
@@ -82,11 +98,12 @@ class InventoryRoundTrip(unittest.TestCase):
                                     {**first, "stateToken": preview["stateToken"]}, cookie)
         self.assertEqual(status, 200, result)
         saved = result["plan"]
-        self.assertEqual([len(saved[k]) for k in ("networks", "components", "interfaces", "links")], [3, 4, 3, 2])
+        self.assertEqual([len(saved[k]) for k in ("networks", "components", "interfaces", "links")], [3, 4, 3, 4])
         self.assertCountEqual(export(address, destination), rows)
         status, repeated, _ = request(address, inventory + "/preview", "POST", draft(rows), cookie)
         self.assertEqual(status, 200)
         self.assertFalse(any(row["hasChanges"] for row in repeated["rows"]), repeated)
+        self.assertTrue(all(not row["errors"] for row in repeated["rows"]), repeated)
         self.assertFalse(repeated.get("decisions"), repeated)
         self.assertEqual(request(address, destination)[1], saved)
         undo = result["undo"]["importId"]

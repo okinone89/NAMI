@@ -59,7 +59,7 @@ class InventoryMoves(unittest.TestCase):
 
     def test_reciprocal_claim_needs_one_move_or_keep_both_answer(self):
         original = self.start(["P08"])
-        draft = {"rows": [declares("P09", connectionType="Wired"),
+        draft = {"rows": [declares("P09", connectionType="Wired", ipv4="192.168.1.45"),
                           {"rowNumber": 7, "interfaceId": "P08", "linkPartner": 'Filler, "Line A"',
                            "partnerPort": "LAN A"}]}
         preview = self.preview(draft)
@@ -67,6 +67,11 @@ class InventoryMoves(unittest.TestCase):
         self.assertEqual(self.post("commit", {**draft, "stateToken": preview["stateToken"]})[0], 409)
         decision, = preview["decisions"]
         self.assertEqual(decision["rowNumbers"], [2, 7])
+        self.assertEqual(decision["scope"], "connection")
+        skipped = self.apply({"rows": [{**row, "skipConnection": True} for row in draft["rows"]]})
+        self.assertEqual(skipped["plan"]["links"], original["links"])
+        self.assertEqual(skipped["plan"]["interfaces"][0]["ipv4"], "192.168.1.45")
+        self.assertEqual(self.post("undo", skipped["undo"])[0], 200)
         move, = [c for c in decision["choices"] if "Move" in c["label"]]
         keep, = [c for c in decision["choices"] if "Keep both" in c["label"]]
         kept = self.apply({**draft, "answers": {decision["id"]: keep["id"]}})
@@ -104,6 +109,22 @@ class InventoryMoves(unittest.TestCase):
         self.assertEqual(len(selected["plan"]["links"]), 2)
         moved, = [link for link in selected["plan"]["links"] if link["id"] == original["links"][0]["id"]]
         self.assertEqual(moved["source"], port("P07"))
+
+    def test_skipping_conflicting_existing_cable_protects_it_from_a_clean_move(self):
+        original = self.start(["P08"])
+        rows = [declares("P08", connectionType="Wired", ipv4="192.168.1.61"),
+                {"rowNumber": 3, "interfaceId": "P08", "linkPartner": 'Filler, "Line A"',
+                 "partnerPort": "LAN A", "connectionType": "FO"},
+                declares("P09", 4, connectionType="Wired")]
+        decision, = self.preview({"rows": rows})["decisions"]
+        self.assertEqual(decision["rowNumbers"], [2, 3])
+        for row in rows[:2]:
+            row["skipConnection"] = True
+        saved = self.apply({"rows": rows})["plan"]
+        self.assertIn(original["links"][0], saved["links"])
+        added, = [link for link in saved["links"] if link["id"] != "P08"]
+        self.assertIn(port("P09"), (added["source"], added["target"]))
+        self.assertEqual(saved["interfaces"][0]["ipv4"], "192.168.1.61")
 
     def test_explicit_removal_is_exact_stale_checked_and_reversible_on_both_providers(self):
         for provider in ["SQLite", "PostgreSQL"]:
@@ -158,6 +179,31 @@ class InventoryMoves(unittest.TestCase):
         self.assertEqual(len({choice["label"] for choice in choices}), 2)
         removed = self.apply({"rows": [{**row, "removeLinkIds": ["spare"]}]})
         self.assertEqual(removed["plan"]["links"], [original["links"][0]])
+
+    def test_ambiguous_parallel_cable_edit_selects_only_one_or_skips_only_the_connection(self):
+        plan = self.start(["P08"])
+        plan["links"].append({**plan["links"][0], "id": "add-cable", "protocol": "Serial"})
+        original = self.put(plan)
+        rows = [declares("P08", ipv4="192.168.1.44", connectionType="Wireless", linkProtocol="MQTT"),
+                {"rowNumber": 3, "interfaceId": "P08", "linkPartner": 'Filler, "Line A"',
+                 "partnerPort": "LAN A", "connectionType": "Wireless", "linkProtocol": "MQTT"}]
+        pending = self.preview({"rows": rows})
+        decision, = pending["decisions"]
+        self.assertEqual((decision["rowNumbers"], decision["scope"]), ([2, 3], "connection"))
+        self.assertFalse(pending["canApply"])
+        options = {choice["label"]: choice["id"] for choice in decision["choices"]}
+        self.assertEqual(len(set(options.values())), 3)
+        skipped = self.apply({"rows": [{**row, "skipConnection": True} for row in rows]})
+        self.assertEqual(skipped["plan"]["links"], original["links"])
+        self.assertEqual(skipped["plan"]["interfaces"][0]["ipv4"], "192.168.1.44")
+        self.assertEqual(self.post("undo", skipped["undo"])[0], 200)
+        choose, = [value for label, value in options.items() if "Serial" in label]
+        changed = self.apply({"rows": rows, "answers": {decision["id"]: choose}})
+        self.assertEqual(changed["plan"]["links"], [
+            original["links"][0], {**original["links"][1], "medium": "wireless", "protocol": "MQTT"}])
+        status, restored = self.post("undo", changed["undo"])
+        self.assertEqual(status, 200)
+        self.assertEqual(restored["links"], original["links"])
 
     def test_new_partner_since_preview_reopens_move_choice_without_writing_any_row(self):
         original = self.start(["P08"])

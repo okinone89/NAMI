@@ -74,6 +74,11 @@ class InventoryLinks(unittest.TestCase):
         self.assertFalse(replay["canApply"], replay)
         self.assertTrue(all(not r["errors"] and not r["hasChanges"] for r in replay["rows"]))
 
+    def test_repeated_declaration_from_one_side_creates_one_link(self):
+        row = {"interfaceId": "lan-a", "linkPartner": "Capper PLC", "partnerPort": "LAN B", "connectionType": "Wired"}
+        result = self.commit([{**row, "rowNumber": number} for number in range(2, 6)])
+        self.assertEqual(len(result["plan"]["links"]), 1)
+
     def test_link_edits_preserve_blank_metadata_and_undo_restores_only_the_imported_changes(self):
         original = self.put({**self.plan, "links": [{
             "id": "installed", "source": {"componentId": "plc-b", "interfaceId": "lan-b"},

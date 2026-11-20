@@ -68,6 +68,7 @@ export function ImportWizard({
     .filter((row) => row.match === "skipped")
     .map((row) => row.rowNumber)
   const changed = review.preview.rows.filter((row) => row.hasChanges).length
+  const linkChanges = review.preview.links?.filter((link) => link.summary) ?? []
   const noChanges = !decision && !review.preview.canApply && changed === 0
 
   async function preview(
@@ -284,13 +285,20 @@ export function ImportWizard({
               </p>
             )}
             <SkippedConnections rows={review.preview.rows} inputs={inputs} />
-            {review.preview.links
-              ?.filter((link) => link.summary)
-              .map((link) => (
-                <p key={JSON.stringify([link.rowNumbers, link.summary])}>
-                  {link.summary}
-                </p>
-              ))}
+            {linkChanges.length > 0 && (
+              <details open={linkChanges.length === 1}>
+                <summary className="cursor-pointer py-2">
+                  Connection changes ({linkChanges.length})
+                </summary>
+                <ul className="list-disc pl-5">
+                  {linkChanges.map((link) => (
+                    <li key={JSON.stringify([link.rowNumbers, link.summary])}>
+                      {link.summary}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
             <details>
               <summary className="cursor-pointer py-2">Review rows</summary>
               {review.preview.rows.map((row) => (

@@ -181,7 +181,7 @@ test("reciprocal cabling and consistent metadata edits go directly to the summar
     "Controller,X1,PLC,,,,Switch,P8,,EtherCAT",
     "Switch,P8,Switch,,,,Controller,X1,FO,",
   ]
-  async function apply(source: string[]) {
+  async function apply(source: string[], expectedChange: RegExp) {
     const dialog = await openImport(page, plan)
     await dialog.getByLabel("Spreadsheet rows").fill(source.join("\n"))
     await dialog.getByRole("button", { name: "Load pasted rows" }).click()
@@ -189,24 +189,35 @@ test("reciprocal cabling and consistent metadata edits go directly to the summar
     await expect(
       dialog.getByRole("heading", { name: "Import summary" })
     ).toBeVisible()
+    const changes = dialog
+      .locator("details")
+      .filter({ hasText: "Connection changes" })
+    await expect(changes).toContainText("Controller / X1")
+    await expect(changes).toContainText("Switch / P8")
+    await expect(changes).toContainText(expectedChange)
     await dialog.getByRole("button", { name: "Apply import" }).click()
     await expect(dialog).toBeHidden()
     const response = await page.request.get(`/api/plans/${plan.id}`)
     expect(response.ok()).toBe(true)
     return (await response.json()) as Plan
   }
-  const built = await apply(rows)
+  const built = await apply(rows, /Add .*FO.*EtherCAT/)
   expect(built.links).toHaveLength(1)
   expect(built.links[0]).toMatchObject({
     medium: "fiberOptic",
     protocol: "EtherCAT",
   })
-  const edited = await apply([
-    rows[0],
-    "Switch,P8,Switch,,,,Controller,X1,Wired,",
-    "Controller,X1,PLC,,,,Switch,P8,Wired,",
+  const edited = await apply(
+    [
+      rows[0],
+      "Switch,P8,Switch,,,,Controller,X1,Wired,Modbus",
+      "Controller,X1,PLC,,,,Switch,P8,Wired,Modbus",
+    ],
+    /FO.*EtherCAT.*Wired.*Modbus/
+  )
+  expect(edited.links).toEqual([
+    { ...built.links[0], medium: "wired", protocol: "Modbus" },
   ])
-  expect(edited.links).toEqual([{ ...built.links[0], medium: "wired" }])
 })
 
 test("a clean move names both ports and an engineer can remove one installed connection", async ({
