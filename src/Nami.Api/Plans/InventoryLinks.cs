@@ -1,6 +1,7 @@
 namespace Nami.Api.Plans;
 
-internal sealed record InventoryLinkPreview(PlanLink? Before, PlanLink After, IReadOnlyList<int> RowNumbers);
+internal sealed record InventoryLinkPreview(PlanLink? Before, PlanLink? After, IReadOnlyList<int> RowNumbers, string? Summary = null);
+internal sealed record InventoryConnection(string Id, string Label);
 
 internal static partial class InventoryPreview
 {
@@ -17,7 +18,7 @@ internal static partial class InventoryPreview
     }
 
     private static IReadOnlyList<InventoryLinkPreview> ResolveLinks(Plan inventory, Candidate[] rows,
-        PlanIndex index, InventoryDecisions decisions)
+        PlanIndex index, InventoryDecisions decisions, InventoryWiring wiring)
     {
         var components = inventory.Components.ToLookup(component => component.Name, Names);
         var ports = inventory.Interfaces.ToLookup(port => port.ComponentId);
@@ -63,19 +64,32 @@ internal static partial class InventoryPreview
             group.Add(row);
         }
 
-        var existing = inventory.Links.ToLookup(link => EndpointPair.Of(link.Source, link.Target));
+        var preview = ResolveLinkRemovals(inventory, rows);
+        var removedIds = preview.Select(change => change.Before!.Id).ToHashSet();
+        foreach (var change in preview)
+        {
+            var removedLink = change.Before!;
+            var pair = EndpointPair.Of(removedLink.Source, removedLink.Target);
+            if (wiring.Existing[pair].All(link => removedIds.Contains(link.Id)))
+                declarations.Remove(pair);
+        }
+        var moves = ResolveLinkMoves(inventory, wiring, removedIds, declarations, decisions, out var unresolved);
+        var movedIds = moves.Values.Select(link => link.Id).ToHashSet();
         var usedIds = inventory.Links.Select(link => link.Id).ToHashSet();
-        var preview = new List<InventoryLinkPreview>();
         foreach (var (ends, group) in declarations)
         {
-            var before = existing[ends].ToArray();
+            if (unresolved.Contains(ends))
+                continue;
+            var before = wiring.Existing[ends].Where(link => !removedIds.Contains(link.Id)).ToArray();
             if (before.Length > 1)
             {
                 foreach (var row in group)
                     row.Fail("ambiguousLink", "More than one existing link connects these endpoints.");
                 continue;
             }
-            var link = before.SingleOrDefault();
+            if (before.Length == 1 && movedIds.Contains(before[0].Id))
+                continue;
+            var link = before.SingleOrDefault() ?? moves.GetValueOrDefault(ends);
             var media = group.Select(row => NonBlank(row.Input.ConnectionType)).OfType<string>()
                 .Select(ParseMedium).Distinct().ToArray();
             var protocols = group.Select(row => NonBlank(row.Input.LinkProtocol)).OfType<string>()
@@ -91,10 +105,10 @@ internal static partial class InventoryPreview
             var protocol = protocols.SingleOrDefault() ?? link?.Protocol;
             var after = link is null
                 ? new PlanLink(NewLinkId(inventory.Id, ends, usedIds), ends.First, ends.Second, medium, protocol)
-                : link with { Medium = medium, Protocol = protocol };
+                : Reconnect(link, ends) with { Medium = medium, Protocol = protocol };
             preview.Add(new(link, after, group.Select(row => row.Input.RowNumber).Order().ToArray()));
         }
-        return preview;
+        return preview.Select(change => change with { Summary = wiring.Summary(change.Before, change.After) }).ToArray();
     }
 
     private static LinkMedium? ParseMedium(string value) => value.ToUpperInvariant() switch

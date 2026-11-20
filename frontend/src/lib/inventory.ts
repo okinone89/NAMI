@@ -33,6 +33,7 @@ export type InventoryClearField = "network" | "ipv4"
 export type InventoryImportRow = Partial<Record<InventoryField, string>> & {
   rowNumber: number
   clear?: InventoryClearField[]
+  removeLinkIds?: string[]
   skip?: boolean
 }
 export type InventoryPreviewRequest = {
@@ -63,8 +64,10 @@ export type InventoryPreviewRow = {
   errors: { code: string; message: string }[]
   addressIssues: AddressIssue[]
   blockingAddressIssues: AddressIssue[]
+  connections?: { id: string; label: string }[]
 }
 export type InventoryPreview = {
+  links?: { rowNumbers: number[]; summary: string | null }[]
   decisions?: {
     id: string
     title: string

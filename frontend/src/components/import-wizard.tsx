@@ -109,6 +109,34 @@ export function ImportWizard({
     }
   }
 
+  async function toggleRemoval(input: InventoryImportRow, linkId: string) {
+    if (disabled) return
+    setBusy(true)
+    setError("")
+    const selected = input.removeLinkIds ?? []
+    const removeLinkIds = selected.includes(linkId)
+      ? selected.filter((id) => id !== linkId)
+      : [...selected, linkId]
+    try {
+      setReview(
+        await preview({
+          ...review.request,
+          rows: review.request.rows.map((row) =>
+            row.rowNumber === input.rowNumber ? { ...row, removeLinkIds } : row
+          ),
+        })
+      )
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "Unable to update the preview."
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function next() {
     if (!decision || !answer || disabled) return
     setBusy(true)
@@ -249,6 +277,13 @@ export function ImportWizard({
                 {skipped.join(", ")}
               </p>
             )}
+            {review.preview.links
+              ?.filter((link) => link.summary)
+              .map((link) => (
+                <p key={JSON.stringify([link.rowNumbers, link.summary])}>
+                  {link.summary}
+                </p>
+              ))}
             <details>
               <summary className="cursor-pointer py-2">Review rows</summary>
               {review.preview.rows.map((row) => (
@@ -256,7 +291,28 @@ export function ImportWizard({
                   key={row.rowNumber}
                   row={row}
                   input={inputs.get(row.rowNumber)!}
-                />
+                >
+                  {row.connections?.map((connection) => (
+                    <Button
+                      key={connection.id}
+                      variant="outline"
+                      className="h-auto min-h-11 justify-start text-left whitespace-normal"
+                      onClick={() =>
+                        void toggleRemoval(
+                          inputs.get(row.rowNumber)!,
+                          connection.id
+                        )
+                      }
+                    >
+                      {inputs
+                        .get(row.rowNumber)
+                        ?.removeLinkIds?.includes(connection.id)
+                        ? "Keep connection"
+                        : "Remove connection"}{" "}
+                      {connection.label}
+                    </Button>
+                  ))}
+                </RowDetails>
               ))}
             </details>
           </>
