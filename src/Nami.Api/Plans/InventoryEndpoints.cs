@@ -8,7 +8,7 @@ internal static class InventoryEndpoints
     {
         var inventory = app.MapGroup("/api/plans/{id}");
         inventory.MapGet("/inventory.csv", Export)
-            .WithSummary("Download one CSV inventory row per interface");
+            .WithSummary("Download the component and interface inventory as CSV");
         inventory.MapPost("/inventory/preview", Preview)
             .WithSummary("Preview changes from mapped inventory rows")
             .ProducesProblem(StatusCodes.Status401Unauthorized);
