@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Locator } from "@playwright/test"
-import { editorPassphrase } from "./workspace-settings"
+import { editorPassphrase, workspaceAction } from "./workspace-settings"
 
 test("switch views while loading and browse the empty plan", async ({
   page,
@@ -57,16 +57,16 @@ test("create a named plan and reopen it after signing out", async ({
 }, info) => {
   const name = `Packaging ${info.project.name}`
   await page.goto("/")
-  await page.getByRole("button", { name: "Unlock editing" }).click()
+  await workspaceAction(page, "Unlock editing")
   const unlock = page.getByRole("dialog", { name: "Unlock editing" })
   await unlock.getByLabel("Shared editor passphrase").fill(editorPassphrase)
   await unlock.getByRole("button", { name: "Unlock editing" }).click()
-  await page.getByRole("button", { name: "New plan" }).click()
+  await workspaceAction(page, "New plan")
   const create = page.getByRole("dialog", { name: "New plan" })
   await create.getByLabel("Plan name").fill(name)
   await create.getByRole("button", { name: "Create plan" }).click()
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
-  await page.getByRole("button", { name: "Sign out" }).click()
+  await workspaceAction(page, "Sign out")
   await expect(page.getByRole("button", { name: "New plan" })).toBeHidden()
   await page.reload()
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
@@ -83,12 +83,18 @@ test("manage named networks in the open plan", async ({ page }, info) => {
     .getByRole("button", { name: "Edit network Plant", exact: true })
     .click()
   const network = page.getByRole("dialog", { name: "Edit network" })
+  await network
+    .getByLabel("Network type")
+    .selectOption({ label: "Fiber optic" })
   await network.getByLabel("Network name").fill("Plant Backbone")
   await network.getByRole("button", { name: "Save network" }).click()
   await expect(
     page.getByRole("button", { name: "Edit network Plant Backbone" })
   ).toBeVisible()
   await page.reload()
+  await expect(
+    page.getByRole("button", { name: "Plant Backbone", exact: true })
+  ).toContainText("Fiber optic")
   await expect(
     page.getByRole("button", { name: "Edit network Plant Backbone" })
   ).toBeVisible()
@@ -124,7 +130,10 @@ test("edit server and VM interfaces through one editor and inspect them after si
   await createNetwork(page, "Controls")
 
   const addComponent = async (name: string, type: string) => {
-    await page.getByRole("button", { name: "Add component" }).click()
+    await page.getByRole("button", { name: "Add", exact: true }).click()
+    await page
+      .getByRole("menuitem", { name: "Add component", exact: true })
+      .click()
     const editor = page.getByRole("dialog", { name: "Add component" })
     await editor.getByLabel("Component name").fill(name)
     await editor.getByLabel("Component type").fill(type)
@@ -193,7 +202,7 @@ test("edit server and VM interfaces through one editor and inspect them after si
   await vm.getByLabel("IPv4 address").fill("10.50.0.35")
   await saveComponent(vm)
 
-  await page.getByRole("button", { name: "Sign out" }).click()
+  await workspaceAction(page, "Sign out")
   await page.reload()
   await diagram.getByRole("button", { name: "Runtime", exact: true }).click()
   await expect(vm.getByText("Server B", { exact: true })).toBeVisible()

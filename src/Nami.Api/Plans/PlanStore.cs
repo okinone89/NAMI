@@ -14,6 +14,7 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
     internal async Task<Plan> InsertAsync(Plan plan, CancellationToken cancellationToken)
     {
         PlanValidation.Validate(plan);
+        InventoryNames.Validate(plan);
         // A package carries already recorded addresses, including duplicates that remain flagged.
         var issues = AddressValidation.Inspect(plan).Where(issue => issue.Code != AddressIssueCode.DuplicateIpv4).ToArray();
         if (issues.Length > 0)
@@ -90,6 +91,7 @@ public sealed class PlanStore(IConfiguration configuration, string contentRoot)
         if (current is null || current.Revision != plan.Revision)
             return null;
 
+        InventoryNames.Validate(plan, current);
         var issues = AddressValidation.BlockingIssues(current, plan, approvals);
         if (issues.Count > 0)
             throw new AddressValidationException(issues);

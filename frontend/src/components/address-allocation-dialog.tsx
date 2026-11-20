@@ -1,3 +1,4 @@
+import { IconCheck, IconEye, IconPencil, IconX } from "@tabler/icons-react"
 import { useState } from "react"
 import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
@@ -187,7 +188,7 @@ export function AddressAllocationDialog({
             disabled={busy}
             onClick={onClose}
           >
-            Cancel
+            <IconX aria-hidden="true" data-icon="inline-start" /> Cancel
           </Button>
           {preview ? (
             <>
@@ -205,6 +206,7 @@ export function AddressAllocationDialog({
                     )
                   }}
                 >
+                  <IconPencil aria-hidden="true" data-icon="inline-start" />{" "}
                   Change selection
                 </Button>
               )}
@@ -213,6 +215,7 @@ export function AddressAllocationDialog({
                 disabled={busy || !preview.canApply}
                 onClick={() => void confirm()}
               >
+                <IconCheck aria-hidden="true" data-icon="inline-start" />{" "}
                 {interfaceId ? "Accept suggestion" : "Assign addresses"}
               </Button>
             </>
@@ -222,6 +225,7 @@ export function AddressAllocationDialog({
               disabled={busy || !selected.length}
               onClick={() => void requestPreview()}
             >
+              <IconEye aria-hidden="true" data-icon="inline-start" />{" "}
               {interfaceId ? "Preview suggestion" : "Preview assignment"}
             </Button>
           )}

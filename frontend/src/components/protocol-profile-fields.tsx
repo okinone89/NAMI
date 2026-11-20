@@ -1,3 +1,4 @@
+import { IconPlus, IconTrash } from "@tabler/icons-react"
 import { useId, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import {
@@ -207,7 +208,8 @@ export function ProtocolProfileFields({
             aria-controls={`${id}-available`}
             onClick={() => setChooserOpen(!chooserOpen)}
           >
-            Add protocol profile
+            <IconPlus aria-hidden="true" data-icon="inline-start" /> Add
+            protocol profile
           </Button>
           <div
             id={`${id}-available`}
@@ -225,7 +227,8 @@ export function ProtocolProfileFields({
                   setChooserOpen(false)
                 }}
               >
-                Add {profileNames[type]}
+                <IconPlus aria-hidden="true" data-icon="inline-start" /> Add{" "}
+                {profileNames[type]}
               </Button>
             ))}
           </div>
@@ -254,7 +257,8 @@ function ProfileFields({
         className="min-h-11 self-start"
         onClick={onRemove}
       >
-        Remove {name} profile
+        <IconTrash aria-hidden="true" data-icon="inline-start" /> Remove {name}{" "}
+        profile
       </Button>
     </FieldSet>
   )
@@ -330,7 +334,8 @@ function ModbusDeviceFields({
                 onChange(devices.filter((_, position) => position !== index))
               }}
             >
-              Remove downstream device
+              <IconTrash aria-hidden="true" data-icon="inline-start" /> Remove
+              downstream device
             </Button>
           </FieldSet>
         )
@@ -344,7 +349,8 @@ function ModbusDeviceFields({
           onChange([...devices, {}])
         }}
       >
-        Add downstream device
+        <IconPlus aria-hidden="true" data-icon="inline-start" /> Add downstream
+        device
       </Button>
     </div>
   )

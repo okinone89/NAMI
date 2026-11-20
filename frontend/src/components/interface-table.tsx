@@ -1,21 +1,26 @@
+import {
+  IconBulb,
+  IconDeviceFloppy,
+  IconPencil,
+  IconWand,
+  IconX,
+} from "@tabler/icons-react"
 import { useId, useState, type FormEvent } from "react"
 import {
   IconArrowDown,
   IconArrowUp,
   IconArrowsSort,
   IconTable,
+  IconSearch,
 } from "@tabler/icons-react"
 import { AddressAllocationDialog } from "@/components/address-allocation-dialog"
-import {
-  InventoryCommitAction,
-  InventoryUndoControl,
-} from "@/components/inventory-confirmation"
-import { InventoryDialog, InventoryTools } from "@/components/inventory-tools"
+import { InventoryCommitAction } from "@/components/inventory-confirmation"
+import { InventoryDialog } from "@/components/inventory-tools"
 import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Input, inputStyles } from "@/components/ui/input"
 import { Dialog } from "@/components/ui/dialog"
-import { Field, FieldLabel } from "@/components/ui/field"
+import { AppearanceMark } from "@/components/diagram-component-label"
 import { EmptyPlanView, type PlanViewProps } from "@/components/plan-view"
 import type { AddressConflictApproval } from "@/lib/address-issues"
 import type { PlanInterface } from "@/lib/plans"
@@ -34,6 +39,8 @@ type InterfaceDraft = {
   changes: Partial<Addressing>
 }
 
+const addressFieldWidth = "w-[calc(15ch+1.5rem)]"
+
 const collator = new Intl.Collator(undefined, {
   numeric: true,
   sensitivity: "base",
@@ -46,7 +53,7 @@ export function InterfaceTable({
   savePlan,
   refreshPlan,
   withEditorAccess,
-  filter: { query, networkId },
+  filter: { query, networkIds },
   updateFilter,
 }: PlanViewProps) {
   const id = useId()
@@ -85,8 +92,11 @@ export function InterfaceTable({
       : undefined
   const { components, rows, withoutInterfaces } = interfaceRows(plan, {
     query,
-    networkId,
+    networkIds,
   })
+  const selectedRowCount = rows.filter(({ port }) =>
+    selected.has(port.id)
+  ).length
 
   if (sort) {
     const direction = sort.direction === "ascending" ? 1 : -1
@@ -137,28 +147,6 @@ export function InterfaceTable({
 
   return (
     <div className="min-h-[50svh]">
-      <InventoryTools
-        key={plan.id}
-        planId={plan.id}
-        canEdit={canEdit}
-        withEditorAccess={withEditorAccess}
-        renderActions={(review) => (
-          <InventoryCommitAction
-            review={review}
-            onPlanChanged={refreshPlan}
-            withEditorAccess={withEditorAccess}
-          />
-        )}
-      >
-        {canEdit && (
-          <InventoryUndoControl
-            planId={plan.id}
-            revision={plan.revision}
-            onPlanChanged={refreshPlan}
-            withEditorAccess={withEditorAccess}
-          />
-        )}
-      </InventoryTools>
       <>
         <div
           className={cn(
@@ -166,16 +154,53 @@ export function InterfaceTable({
             draftPort && "sticky top-0 z-10"
           )}
         >
-          <Field className="max-w-sm">
-            <FieldLabel htmlFor={`${id}-filter`}>Filter interfaces</FieldLabel>
+          <div className="relative w-full max-w-sm">
+            <IconSearch
+              aria-hidden="true"
+              className="absolute top-3.5 left-3 size-4 text-muted-foreground"
+            />
             <Input
               id={`${id}-filter`}
               type="search"
+              aria-label="Search component"
+              placeholder="Search component"
               value={query}
               onChange={(event) => updateFilter({ query: event.target.value })}
-              className="min-h-11"
+              className="min-h-11 pl-9"
             />
-          </Field>
+          </div>
+          {canEdit && plan.interfaces.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                className="min-h-11"
+                disabled={
+                  !rows.length ||
+                  (selectedRowCount === rows.length &&
+                    selectedPorts.length === rows.length)
+                }
+                onClick={() =>
+                  setSelected(new Set(rows.map(({ port }) => port.id)))
+                }
+              >
+                Select all
+              </Button>
+              <Button
+                variant="outline"
+                className="min-h-11"
+                disabled={!selectedRowCount}
+                onClick={() =>
+                  setSelected((previous) => {
+                    const next = new Set(previous)
+                    for (const { port } of rows) next.delete(port.id)
+                    return next
+                  })
+                }
+              >
+                Deselect all
+              </Button>
+            </div>
+          )}
           {canEdit && selectedPorts.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs">{selectedPorts.length} selected</span>
@@ -187,7 +212,8 @@ export function InterfaceTable({
                   setBulkSelection(selectedPorts.map(({ id }) => id))
                 }
               >
-                Edit selected interfaces
+                <IconPencil aria-hidden="true" data-icon="inline-start" /> Edit
+                selected interfaces
               </Button>
             </div>
           )}
@@ -198,6 +224,7 @@ export function InterfaceTable({
               disabled={Boolean(draftPort)}
               onClick={() => setAllocation({})}
             >
+              <IconWand aria-hidden="true" data-icon="inline-start" />{" "}
               Auto-assign IPv4
             </Button>
           )}
@@ -212,6 +239,7 @@ export function InterfaceTable({
                 {draftPort.name}
               </span>
               <Button type="submit" disabled={saving} className="min-h-11">
+                <IconDeviceFloppy aria-hidden="true" data-icon="inline-start" />{" "}
                 {saving ? "Saving…" : "Save interface"}
               </Button>
               <Button
@@ -224,7 +252,8 @@ export function InterfaceTable({
                   setFailure(undefined)
                 }}
               >
-                Discard changes
+                <IconX aria-hidden="true" data-icon="inline-start" /> Discard
+                changes
               </Button>
               <AddressSaveFeedback
                 failure={failure}
@@ -329,12 +358,17 @@ export function InterfaceTable({
                             className="min-h-11 px-0"
                             onClick={() => onSelectComponent(port.componentId)}
                           >
+                            <span aria-hidden="true">
+                              {components.has(port.componentId) && (
+                                <AppearanceMark
+                                  component={components.get(port.componentId)!}
+                                />
+                              )}
+                            </span>
                             {component}
                           </Button>
-                          <span className="-mt-2 block pb-2 text-muted-foreground">
-                            {type}
-                          </span>
                         </td>
+                        <td className="px-2 py-2 sm:px-4">{type}</td>
                         <td className="px-2 py-2 sm:px-4">{port.name}</td>
                         <td className="px-2 py-2 sm:px-4">
                           {canEdit ? (
@@ -347,7 +381,7 @@ export function InterfaceTable({
                                   networkId: event.target.value || null,
                                 })
                               }
-                              className="min-h-11 w-full min-w-28 border border-input bg-background px-2 disabled:opacity-50"
+                              className={cn(inputStyles, addressFieldWidth)}
                             >
                               <option value="">No network</option>
                               {plan.networks.map((candidate) => (
@@ -374,7 +408,7 @@ export function InterfaceTable({
                                   ipv4: event.target.value,
                                 })
                               }
-                              className="min-h-11 min-w-32"
+                              className={addressFieldWidth}
                             />
                           ) : (
                             ipv4 || "—"
@@ -394,6 +428,10 @@ export function InterfaceTable({
                                 setAllocation({ interfaceId: port.id })
                               }
                             >
+                              <IconBulb
+                                aria-hidden="true"
+                                data-icon="inline-start"
+                              />{" "}
                               Suggest IPv4
                             </Button>
                           )}
@@ -434,6 +472,9 @@ export function InterfaceTable({
                   className="min-h-11"
                   onClick={() => onSelectComponent(component.id)}
                 >
+                  <span aria-hidden="true">
+                    <AppearanceMark component={component} />
+                  </span>
                   {component.name}
                 </Button>
               </li>

@@ -106,6 +106,17 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     )
   }
 
+  async function downloadPlan(plan: PlanSummary) {
+    const url = URL.createObjectURL(await withEditorAccess(exportPlan(plan.id)))
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `${plan.name}.nami.json`
+    document.body.append(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+  }
+
   return {
     plans,
     plan,
@@ -115,7 +126,7 @@ export function usePlanWorkspace(onEditorExpired: () => void) {
     loading: !plans || (planId !== undefined && !plan),
     selectPlan,
     addPlan,
-    exportPlan: (id: string) => withEditorAccess(exportPlan(id)),
+    exportPlan: downloadPlan,
     importPlan: addPlanPackage,
     savePlan: updatePlan,
     withEditorAccess,

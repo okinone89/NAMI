@@ -1,3 +1,4 @@
+import { IconUpload, IconX } from "@tabler/icons-react"
 import { useId, useState, type FormEvent } from "react"
 import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
@@ -10,78 +11,11 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import type { PlanSummary } from "@/lib/plans"
-
-type Props = {
-  plan?: PlanSummary
-  onExport: (id: string) => Promise<Blob>
-  onImport: (file: File) => Promise<void>
-}
-
-export function PlanPackageControls({ plan, onExport, onImport }: Props) {
-  const [importing, setImporting] = useState(false)
-  const [exporting, setExporting] = useState(false)
-  const [exportError, setExportError] = useState<unknown>()
-
-  async function download() {
-    if (!plan) return
-    setExportError(undefined)
-    setExporting(true)
-    try {
-      const url = URL.createObjectURL(await onExport(plan.id))
-      const link = document.createElement("a")
-      link.href = url
-      link.download = `${plan.name}.nami.json`
-      document.body.append(link)
-      link.click()
-      link.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 0)
-    } catch (error) {
-      setExportError(error)
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  return (
-    <>
-      {plan && (
-        <Button
-          variant="outline"
-          className="min-h-11"
-          disabled={exporting}
-          onClick={download}
-        >
-          {exporting ? "Exporting…" : "Export plan"}
-        </Button>
-      )}
-      <Button
-        variant="outline"
-        className="min-h-11"
-        onClick={() => setImporting(true)}
-      >
-        Import plan
-      </Button>
-      <AddressSaveFeedback
-        failure={exportError}
-        fallback="Unable to export the plan. Try again."
-        disabled={exporting}
-      />
-      {importing && (
-        <PlanPackageImport
-          onImport={onImport}
-          onClose={() => setImporting(false)}
-        />
-      )}
-    </>
-  )
-}
-
-function PlanPackageImport({
+export function PlanPackageImport({
   onImport,
   onClose,
 }: {
-  onImport: Props["onImport"]
+  onImport: (file: File) => Promise<void>
   onClose: () => void
 }) {
   const fieldId = useId()
@@ -151,9 +85,10 @@ function PlanPackageImport({
               onClick={onClose}
               className="min-h-11"
             >
-              Cancel
+              <IconX aria-hidden="true" data-icon="inline-start" /> Cancel
             </Button>
             <Button type="submit" disabled={busy} className="min-h-11">
+              <IconUpload aria-hidden="true" data-icon="inline-start" />{" "}
               {busy ? "Importing…" : "Import plan"}
             </Button>
           </div>

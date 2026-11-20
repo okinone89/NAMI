@@ -8,29 +8,48 @@ NAMI is a self-hosted web app for planning industrial networks. Draw the connect
 
 ## Installation
 
-For a local installation from source, use Git, the .NET 10 **SDK**, Node.js 24 with npm, and a POSIX shell such as the one on macOS or Linux. SQLite is the default database. [Download .NET 10](https://dotnet.microsoft.com/download/dotnet/10.0) · [Download Node.js](https://nodejs.org/en/download)
+For a local installation from source, use Git, the .NET 10 **SDK**, Node.js 24 with npm, and either PowerShell on Windows or a POSIX shell on macOS or Linux. SQLite is the default database. [Download .NET 10](https://dotnet.microsoft.com/download/dotnet/10.0) · [Download Node.js](https://nodejs.org/en/download)
 
 ```sh
 git clone https://github.com/okinone89/NAMI.git
 cd NAMI
-./run --dev
 ```
 
-The launcher installs frontend dependencies as needed, builds the workspace, and starts the app and API together. Open [NAMI on localhost](http://127.0.0.1:5080). A fresh database shows **No plans yet**. Choose **Unlock editing** and enter `nami-local-editor`, the default passphrase for local development.
+On macOS or Linux, start development mode with `./run --dev`.
+
+### Windows
+
+From PowerShell in the repository root, run development mode with the local editor passphrase.
+
+```powershell
+.\run.ps1 -Dev
+```
+
+For production, run the same launcher without `-Dev`. It starts a Release build in the Production environment. To enable editing, supply `Editor__Passphrase` through the service environment before starting. With the setting unset, the site opens read-only.
+
+```powershell
+.\run.ps1
+```
+
+Both modes listen on loopback at port 5080 by default. Use `-Urls http://127.0.0.1:5082` to choose another address, or set `ASPNETCORE_URLS`. For a shared installation, see [Running a shared instance](#running-a-shared-instance). Check readiness from another PowerShell window with `Invoke-RestMethod http://127.0.0.1:5080/health`.
+
+### Open the workspace
+
+The launcher installs frontend dependencies as needed, builds the workspace, and starts the app and API together. Open [NAMI on localhost](http://127.0.0.1:5080). A fresh database shows **No plans yet**. Open **Workspace → Unlock editing** and enter `nami-local-editor`, the default passphrase for local development.
 
 Plans are saved in `src/Nami.Api/data/nami.db` and are available the next time you run the launcher. Press Ctrl+C to stop it. If port 5080 is busy, run `./run --dev --urls http://127.0.0.1:5082` and open port 5082 instead.
 
 ## Your first plan
 
-1. Choose **New plan**, name it `Cartoning line`, and select **Create plan**.
-2. Choose **Add network**, enter `Machine LAN` and the subnet `192.0.2.0/24`, then select **Save network**.
-3. Choose **Add component**, name it `Cartoner PLC`, and set its type to `PLC`. Use **Add interface** to add `X1`, assign it to `Machine LAN`, enter `192.0.2.10`, and select **Save component**. Repeat for an operator panel with address `192.0.2.20`.
-4. In **Diagram**, choose **Add link**, select the source and target components and their interfaces, choose **Wired**, and select **Save link**. Drag the components into position.
-5. Switch to **Table** and filter for `192.0.2.10` to find the PLC interface. To share the drawing and address list together, choose **Export PDF**, select **Diagram and table** and **Whole plan**, then **Download PDF**.
+1. Choose **Workspace → New plan**, name it `Cartoning line`, and select **Create plan**.
+2. Choose **Add network**, enter `Machine LAN` with network address `192.0.2.0` and subnet mask `255.255.255.0`, then select **Save network**.
+3. Choose **Add → Add component** in the diagram, name it `Cartoner PLC`, and set its type to `PLC`. Use **Add interface** to add `X1`, assign it to `Machine LAN`, enter `192.0.2.10`, and select **Save component**. Repeat for an operator panel with address `192.0.2.20`.
+4. In **Diagram**, choose **Add → Add link**, select the source and target components and their interfaces, choose **Wired**, and select **Save link**. Drag the components into position.
+5. Switch to **Table** and filter for `192.0.2.10` to find the PLC interface. To share the drawing and address list together, choose **Workspace → Export PDF**, select **Diagram and table** and **Whole plan**, then **Download PDF**.
 
 ## Features
 
-**Topology diagrams.** Place devices from the component library, group VMs with their host, and distinguish wired, wireless, and virtual links. Select a network to focus the diagram, or search for an address to find the component that owns it.
+**Topology diagrams.** Place devices from the component library, group VMs with their host, and distinguish wired, fiber optic, wireless, and virtual links. Select one or more networks to focus the diagram, or search for an address to find the component that owns it.
 
 **Interface inventory.** Sort and filter ports by component, network, IPv4 address, or protocol. Record PROFINET station names and roles, EtherNet/IP device classes, and Modbus TCP settings. In the example below, the two rows for the Cartoner PLC show which port serves each network.
 
@@ -38,7 +57,17 @@ Plans are saved in `src/Nami.Api/data/nami.db` and are available the next time y
 
 **IPv4 planning.** Check addresses against their subnet and flag duplicates within a named network. Two isolated machines can use the same subnet. Configure allocation pools and exclusions, then preview available addresses with **Auto-assign IPv4**.
 
-**Inventory and plan exchange.** Export the interface inventory as CSV, or import a CSV or pasted spreadsheet and review changes before applying them. Use **Export PDF** for a readable handoff. Editors can also use **Export plan** and **Import plan** to transfer a JSON package between installations. Importing creates a new plan with its components, layout, and links.
+**Inventory and plan exchange.** From the **Workspace** menu in either view, export the interface inventory as CSV, or import a CSV or pasted spreadsheet and review changes before applying them. Use **Export PDF** for a readable handoff. Editors can also use **Export plan** and **Import plan** to transfer a JSON package between installations. Importing creates a new plan with its components, layout, and links.
+
+To edit inventory in a spreadsheet, start with **Export inventory CSV**. Keep all ten headers when uploading or pasting. You can reorder the columns. If your sheet has ID columns from an older export, export a fresh copy and transfer your edits.
+
+```csv
+Component,Interface,Component type,Network,Network subnet,IPv4,Link partner,Partner port,Connection type,Link protocol
+Cartoner PLC,X1,PLC,Machine LAN,192.0.2.0/24,192.0.2.10,Panel switch,P08,Wired,PROFINET
+Panel switch,P08,Switch,,,,,,,
+```
+
+Names identify components and networks within the plan and interfaces within their component. In this example, the first row refers to the switch port defined in the second. A blank partner port means the link ends at the component. Blank partner cells preserve existing connections.
 
 ## Development
 
@@ -46,7 +75,15 @@ The ASP.NET Core API and persistence code live in [src/Nami.Api](src/Nami.Api). 
 
 ### Run with hot reload
 
-From the repository root, start the API in one terminal. Development mode enables the local editor passphrase.
+From the repository root, start the API in one terminal. Development mode enables the local editor passphrase. On Windows, use PowerShell.
+
+```powershell
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+$env:DOTNET_ENVIRONMENT = "Development"
+dotnet watch --project src/Nami.Api run --no-launch-profile -- --urls http://127.0.0.1:5080
+```
+
+On macOS or Linux, run
 
 ```sh
 ASPNETCORE_ENVIRONMENT=Development dotnet watch --project src/Nami.Api run --no-launch-profile -- --urls http://127.0.0.1:5080
@@ -59,6 +96,8 @@ cd frontend
 npm ci
 npm run dev
 ```
+
+On Windows, use `npm.cmd ci` and `npm.cmd run dev` in the second PowerShell window.
 
 ### Build and test
 
@@ -84,7 +123,7 @@ python3 -B -m unittest discover -s tests -p '*.py'
 
 ## Running a shared instance
 
-Run `./run` to start in Production mode. Serve the workspace and `/api` from the same HTTPS origin on the site LAN or VPN. Anyone who can reach the site can browse its plans. To enable editing, set `Editor__Passphrase` in the service environment through your secret store before startup. Leaving it unset gives visitors read-only access.
+Run `./run` on macOS or Linux, or `.\run.ps1` in Windows PowerShell, to start in Production mode. Serve the workspace and `/api` from the same HTTPS origin on the site LAN or VPN. Anyone who can reach the site can browse its plans. To enable editing, set `Editor__Passphrase` in the service environment through your secret store before startup. Leaving it unset gives visitors read-only access.
 
 An unlocked editor can change any plan. **Sign out** ends the session, as do eight hours without plan API activity. Checking session status alone does not extend it. Run one API process per installation because sessions are held in memory. To rotate the passphrase, change the setting and restart the process. Editors must then unlock again.
 

@@ -1,24 +1,48 @@
 import { PdfExport } from "@/components/pdf-export"
 import { usePlanFilter } from "@/hooks/use-plan-filter"
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import {
-  IconCircuitSwitchOpen,
+  IconDownload,
+  IconFileTypePdf,
+  IconUpload,
+  IconFolderOpen,
+  IconFolderPlus,
+  IconPencil,
+  IconPlus,
+  IconSun,
   IconMoon,
   IconSchema,
   IconTable,
 } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
-import { EditorSessionControls } from "@/components/editor-session"
+import { WorkspaceMenu } from "@/components/editor-session"
 import { useEditorSession } from "@/hooks/use-editor-session"
 import { usePlanWorkspace } from "@/hooks/use-plan-workspace"
 import { PlanNameDialog } from "@/components/plan-name-dialog"
-import { PlanPackageControls } from "@/components/plan-package-controls"
+import { PlanPackageImport } from "@/components/plan-package-controls"
 import { PlanNetworks } from "@/components/plan-networks"
 import { ComponentEditor } from "@/components/component-editor"
 import { DiagramView } from "@/components/diagram-view"
 import { InterfaceTable } from "@/components/interface-table"
+import { Dialog } from "@/components/ui/dialog"
+import { AddressSaveFeedback } from "@/components/ipv4-issues"
+import { inventoryPath } from "@/lib/inventory"
 import { applyDarkMode } from "@/lib/theme"
-import { diagramDragSource } from "@/lib/diagram-placement"
+import {
+  DropdownMenuGroup,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
+import { InventoryDialog } from "@/components/inventory-tools"
+import {
+  InventoryCommitAction,
+  InventoryUndoControl,
+} from "@/components/inventory-confirmation"
 import type { DiagramPosition, SavePlanSnapshot } from "@/lib/plans"
 
 const views = {
@@ -51,11 +75,41 @@ export default function App() {
   const workspace = usePlanWorkspace(editorSession.refresh)
   const { plans, plan, failed, loading } = workspace
   const { value: filter, update: updateFilter } = usePlanFilter(plan?.id)
-  const networkId = plan?.networks.some((n) => n.id === filter.networkId)
-    ? filter.networkId
-    : null
+  const networkIds = useMemo(
+    () =>
+      filter.networkIds.filter((id) => plan?.networks.some((n) => n.id === id)),
+    [filter.networkIds, plan?.networks]
+  )
+  const [sessionImports, setSessionImports] = useState<Record<string, string>>(
+    {}
+  )
+  if (!editorSession.canEdit && Object.keys(sessionImports).length)
+    setSessionImports({})
   const [renaming, setRenaming] = useState<string>()
   const [view, setView] = useState<View>("Diagram")
+  const [fileDialog, setFileDialog] = useState<
+    "pdf" | "inventory" | "package"
+  >()
+  if (
+    !editorSession.canEdit &&
+    (fileDialog === "inventory" || fileDialog === "package")
+  )
+    setFileDialog(undefined)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<unknown>()
+  async function downloadPlan() {
+    if (!plan) return
+    setExportError(undefined)
+    setExporting(true)
+    try {
+      await workspace.exportPlan(plan)
+    } catch (error) {
+      setExportError(error)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const [creating, setCreating] = useState(false)
   const [selection, setSelection] = useState<ComponentSelection>()
   const activeSelection = selection?.planId === plan?.id ? selection : undefined
@@ -101,82 +155,98 @@ export default function App() {
   return (
     <>
       <header className="flex flex-wrap items-center gap-3 border-b px-3 py-2 sm:px-5">
-        <IconCircuitSwitchOpen
-          aria-hidden="true"
-          className="size-8 bg-primary p-1 text-primary-foreground"
-        />
+        <img src="/nami-switch.svg" alt="" width="34" height="34" />
         <strong className="tracking-wide">NAMI</strong>
         <span className="hidden border-l pl-3 text-xs sm:inline">
           Network workspace
         </span>
-        <div
-          role="group"
-          aria-label="Plan commands"
-          className="order-last grid w-full grid-cols-2 gap-1.5 sm:flex sm:flex-wrap lg:order-none lg:w-auto [&>button]:h-11 [&>button]:min-w-24"
-        >
-          {!!plans?.length && (
-            <label className="col-span-full min-w-0 text-xs">
-              <span className="sr-only">Open plan</span>
-              <select
-                className="h-11 w-full border border-input bg-background px-3 sm:w-44"
-                value={workspace.planId}
-                onChange={(event) => workspace.selectPlan(event.target.value)}
-              >
-                {plans.map(({ id, name }) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <WorkspaceMenu session={editorSession}>
+          <DropdownMenuGroup>
+            {!!plans?.length && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <IconFolderOpen aria-hidden="true" /> Open plan
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-w-[55vw]">
+                  <DropdownMenuRadioGroup
+                    value={workspace.planId}
+                    onValueChange={workspace.selectPlan}
+                  >
+                    {plans.map(({ id, name }) => (
+                      <DropdownMenuRadioItem closeOnClick key={id} value={id}>
+                        {name}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+            {editorSession.canEdit && plans && (
+              <DropdownMenuItem onClick={() => setCreating(true)}>
+                <IconFolderPlus aria-hidden="true" /> New plan
+              </DropdownMenuItem>
+            )}
+            {editorSession.canEdit && plan && (
+              <DropdownMenuItem onClick={() => setRenaming(plan.id)}>
+                <IconPencil aria-hidden="true" /> Edit plan
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuGroup>
+          {!!plans?.length && <DropdownMenuSeparator />}
+          <DropdownMenuGroup>
+            {plan && !failed && (
+              <>
+                <DropdownMenuItem onClick={() => setFileDialog("pdf")}>
+                  <IconFileTypePdf aria-hidden="true" /> Export PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  render={<a href={`${inventoryPath(plan.id)}.csv`} download />}
+                >
+                  <IconDownload aria-hidden="true" /> Export inventory CSV
+                </DropdownMenuItem>
+                {editorSession.canEdit && (
+                  <DropdownMenuItem onClick={() => setFileDialog("inventory")}>
+                    <IconUpload aria-hidden="true" /> Import inventory
+                  </DropdownMenuItem>
+                )}
+              </>
+            )}
+            {editorSession.canEdit && plan && (
+              <DropdownMenuItem disabled={exporting} onClick={downloadPlan}>
+                <IconDownload aria-hidden="true" />{" "}
+                {exporting ? "Exporting…" : "Export plan"}
+              </DropdownMenuItem>
+            )}
+            {editorSession.canEdit && plans && (
+              <DropdownMenuItem onClick={() => setFileDialog("package")}>
+                <IconUpload aria-hidden="true" /> Import plan
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuGroup>
+          {(plan || (editorSession.canEdit && plans)) && (
+            <DropdownMenuSeparator />
           )}
-          {plan && !failed && (
-            <PdfExport
-              key={plan.id}
-              plan={plan}
-              view={view}
-              filter={{ ...filter, networkId }}
-            />
-          )}
-          {editorSession.canEdit && plans && (
-            <Button
-              variant="outline"
-              className="min-h-11"
-              onClick={() => setCreating(true)}
+          <DropdownMenuGroup>
+            <DropdownMenuItem
+              onClick={() => {
+                applyDarkMode(!dark)
+                setDark(!dark)
+              }}
             >
-              New plan
-            </Button>
-          )}
-          {plan && editorSession.canEdit && (
-            <Button variant="outline" onClick={() => setRenaming(plan.id)}>
-              Edit plan
-            </Button>
-          )}
-          {editorSession.canEdit && plans && (
-            <PlanPackageControls
-              plan={plan}
-              onExport={workspace.exportPlan}
-              onImport={workspace.importPlan}
-            />
-          )}
-        </div>
-        <Button
-          variant="outline"
-          className="size-11"
-          aria-label="Dark mode"
-          title="Dark mode"
-          aria-pressed={dark}
-          onClick={() => {
-            applyDarkMode(!dark)
-            setDark(!dark)
-          }}
-        >
-          <IconMoon
-            aria-hidden="true"
-            className={dark ? "fill-current" : undefined}
-          />
-        </Button>
-        <EditorSessionControls session={editorSession} />
+              {dark ? (
+                <IconSun aria-hidden="true" />
+              ) : (
+                <IconMoon aria-hidden="true" />
+              )}
+              {dark ? "Switch to light mode" : "Switch to dark mode"}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </WorkspaceMenu>
+        <AddressSaveFeedback
+          failure={exportError}
+          disabled={exporting}
+          fallback="Unable to export the plan. Try again."
+        />
       </header>
       <main className="w-full px-3 py-5 sm:px-5">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-5">
@@ -215,9 +285,13 @@ export default function App() {
             plan={plan}
             canEdit={editorSession.canEdit}
             savePlan={workspace.savePlan}
-            selected={networkId}
+            selected={networkIds}
             onToggle={(id) =>
-              updateFilter({ networkId: networkId === id ? null : id })
+              updateFilter({
+                networkIds: networkIds.includes(id)
+                  ? networkIds.filter((value) => value !== id)
+                  : [...networkIds, id],
+              })
             }
           />
         )}
@@ -227,16 +301,31 @@ export default function App() {
               <ViewIcon size={18} aria-hidden="true" />
               {heading}
             </h2>
-            {plan && editorSession.canEdit && (
-              <Button
-                variant="outline"
-                className="min-h-11"
-                onClick={() => selectComponent(null)}
-                {...(view === "Diagram" ? diagramDragSource("component") : {})}
-              >
-                Add component
-              </Button>
-            )}
+            <div
+              className="flex flex-wrap items-center gap-2"
+              role="group"
+              aria-label={heading + " actions"}
+            >
+              {view === "Table" && plan && editorSession.canEdit && (
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => selectComponent(null)}
+                >
+                  <IconPlus aria-hidden="true" /> Add component
+                </Button>
+              )}
+              {view === "Table" && plan && !failed && editorSession.canEdit && (
+                <InventoryUndoControl
+                  key={plan.id}
+                  planId={plan.id}
+                  revision={plan.revision}
+                  sessionImportId={sessionImports[plan.id]}
+                  withEditorAccess={workspace.withEditorAccess}
+                  onPlanChanged={workspace.refreshPlan}
+                />
+              )}
+            </div>
           </div>
           {plan && !failed ? (
             <ActiveView
@@ -244,13 +333,14 @@ export default function App() {
               plan={plan}
               canEdit={editorSession.canEdit}
               savePlan={workspace.savePlan}
-              filter={{ ...filter, networkId }}
+              filter={{ ...filter, networkIds }}
               updateFilter={updateFilter}
               refreshPlan={workspace.refreshPlan}
               withEditorAccess={workspace.withEditorAccess}
               onSelectComponent={(componentId, onMove) =>
                 selectComponent(componentId, { onMove })
               }
+              onAddComponent={() => selectComponent(null)}
               onPlaceComponent={(position, onPlaced, initialType) =>
                 selectComponent(null, { position, onPlaced, initialType })
               }
@@ -272,6 +362,42 @@ export default function App() {
           )}
         </section>
       </main>
+      {fileDialog === "pdf" && plan && !failed && (
+        <PdfExport
+          plan={plan}
+          view={view}
+          filter={{ ...filter, networkIds }}
+          onClose={() => setFileDialog(undefined)}
+        />
+      )}
+      {fileDialog === "package" && editorSession.canEdit && (
+        <PlanPackageImport
+          onImport={workspace.importPlan}
+          onClose={() => setFileDialog(undefined)}
+        />
+      )}
+      {fileDialog === "inventory" && plan && editorSession.canEdit && (
+        <Dialog open onOpenChange={(open) => !open && setFileDialog(undefined)}>
+          <InventoryDialog
+            planId={plan.id}
+            close={() => setFileDialog(undefined)}
+            withEditorAccess={workspace.withEditorAccess}
+            renderActions={(review) => (
+              <InventoryCommitAction
+                review={review}
+                withEditorAccess={workspace.withEditorAccess}
+                onPlanChanged={workspace.refreshPlan}
+                onImported={(id) =>
+                  setSessionImports((previous) => ({
+                    ...previous,
+                    [plan.id]: id,
+                  }))
+                }
+              />
+            )}
+          />
+        </Dialog>
+      )}
       {plan && (selectedComponent || addingComponent) && (
         <ComponentEditor
           key={selectedComponent?.id ?? "add-component"}

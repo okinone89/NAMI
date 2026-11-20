@@ -4,7 +4,11 @@ import {
   createBaselinePlan,
   sharedMachineAddress,
 } from "./fixtures/baseline-plan"
-import { editorPassphrase } from "./workspace-settings"
+import {
+  editorPassphrase,
+  workspaceAction,
+  expectReadOnly,
+} from "./workspace-settings"
 
 test("browse isolated PLCs and keep, reopen, and resolve a baseline address conflict", async ({
   page,
@@ -19,8 +23,7 @@ test("browse isolated PLCs and keep, reopen, and resolve a baseline address conf
     page.getByText("10 networks · 200 components · 250 interfaces")
   ).toBeVisible()
 
-  const unlock = page.getByRole("button", { name: "Unlock editing" })
-  await expect(unlock).toBeVisible()
+  await expectReadOnly(page)
   const denied = await page.request.put(planPath, {
     data: { ...plan, name: "Anonymous change" },
   })
@@ -54,7 +57,7 @@ test("browse isolated PLCs and keep, reopen, and resolve a baseline address conf
   await plc.getByRole("button", { name: "Close" }).click()
   await search.clear()
 
-  await unlock.click()
+  await workspaceAction(page, "Unlock editing")
   const session = page.getByRole("dialog", { name: "Unlock editing" })
   await session.getByLabel("Shared editor passphrase").fill(editorPassphrase)
   await session.getByRole("button", { name: "Unlock editing" }).click()
@@ -71,7 +74,7 @@ test("browse isolated PLCs and keep, reopen, and resolve a baseline address conf
     exact: true,
   })
   const tableFlags = table.getByText("IPv4 address conflict", { exact: true })
-  const filter = page.getByLabel("Filter interfaces")
+  const filter = page.getByLabel("Search component")
   await filter.fill("Filler A")
   await expect(address).toHaveValue("192.168.1.11")
   await expect(tableFlags).toHaveCount(0)
@@ -112,14 +115,14 @@ test("browse isolated PLCs and keep, reopen, and resolve a baseline address conf
   await filter.fill("Filler A")
   await expect(address).toHaveValue(correctedAddress)
   await expect(tableFlags).toHaveCount(0)
-  await page.getByRole("button", { name: "Sign out" }).click()
-  await expect(unlock).toBeVisible()
+  await workspaceAction(page, "Sign out")
+  await expectReadOnly(page)
   await expect(
     table.getByRole("row", { name: /Filler A HMI.*Ethernet/ })
   ).toContainText(correctedAddress)
   await page.reload()
   await expect(heading).toBeVisible()
-  await expect(unlock).toBeVisible()
+  await expectReadOnly(page)
   await search.fill(sharedMachineAddress)
   await expect(results.getByRole("button")).toHaveCount(2)
 })

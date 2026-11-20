@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { editorPassphrase } from "./workspace-settings"
+import { editorPassphrase, workspaceAction } from "./workspace-settings"
 
 test("edit independent profiles on one gateway interface and reopen them in either view", async ({
   page,
@@ -73,7 +73,7 @@ test("edit independent profiles on one gateway interface and reopen them in eith
   await port.getByLabel("EtherNet/IP device class").selectOption("scanner")
   await save()
 
-  await page.getByRole("button", { name: "Sign out" }).click()
+  await workspaceAction(page, "Sign out")
   await table.getByRole("button", { name: "Main gateway", exact: true }).click()
   await expect(editor.getByText("Scanner", { exact: true })).toBeVisible()
   await expect(editor.getByText("skid-a", { exact: true })).toBeVisible()

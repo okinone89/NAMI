@@ -1,19 +1,25 @@
 import { useState } from "react"
 
-export type PlanFilter = { query: string; networkId: string | null }
+export type PlanFilter = { query: string; networkIds: string[] }
 
 function read(key: string): PlanFilter {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? "null")
-    if (
-      typeof saved?.query === "string" &&
-      (saved.networkId === null || typeof saved.networkId === "string")
-    )
-      return saved
+    if (typeof saved?.query === "string") {
+      const ids = Array.isArray(saved.networkIds)
+        ? saved.networkIds
+        : [saved.networkId]
+      return {
+        query: saved.query,
+        networkIds: ids.filter(
+          (id: unknown): id is string => typeof id === "string"
+        ),
+      }
+    }
   } catch {
     /* Storage can be unavailable in private browsing. */
   }
-  return { query: "", networkId: null }
+  return { query: "", networkIds: [] }
 }
 
 export function usePlanFilter(planId?: string) {

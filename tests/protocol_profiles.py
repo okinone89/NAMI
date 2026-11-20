@@ -75,7 +75,7 @@ class ProtocolProfiles(unittest.TestCase):
             status, reopened, _ = request(address, path)
             self.assertEqual(status, 200)
             self.assertEqual(reopened["interfaces"], updated["interfaces"])
-            self.assertEqual(reopened["links"], [link])
+            self.assertEqual(reopened["links"], [{**link, "lineType": "elbow"}])
             self.assertEqual(reopened["components"][0]["name"], "Main gateway")
 
 

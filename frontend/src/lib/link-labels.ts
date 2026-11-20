@@ -2,6 +2,7 @@ import type { LinkEndpoint, LinkMedium, Plan, PlanLink } from "@/lib/plans"
 
 export const linkMediumLabels: Record<LinkMedium, string> = {
   wired: "Wired",
+  fiberOptic: "Fiber optic",
   wireless: "Wireless",
   virtual: "Virtual",
 }

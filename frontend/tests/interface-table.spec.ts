@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase } from "./workspace-settings"
+import { editorPassphrase, expectReadOnly } from "./workspace-settings"
 
 async function createInterfacePlan(request: APIRequestContext) {
   const session = await request.post("/api/editor-session", {
@@ -90,7 +90,19 @@ test("anonymous visitors can sort, filter and inspect interface rows", async ({
   const runtime = body.getByRole("row").filter({ hasText: "Runtime" })
   await expect(body.getByRole("row")).toHaveCount(3)
   await expect(runtime).toHaveCount(2)
-  await expect(runtime.first().getByText("VM", { exact: true })).toBeVisible()
+  const typeHeader = tableView.getByRole("columnheader", {
+    name: "Component type",
+  })
+  await typeHeader.getByRole("button").click()
+  await expect(
+    body
+      .getByRole("row")
+      .first()
+      .getByRole("cell", { name: "Switch", exact: true })
+  ).toBeVisible()
+  await expect(
+    runtime.first().getByRole("cell", { name: "VM", exact: true })
+  ).toBeVisible()
   await expect(runtime.first().getByRole("textbox")).toHaveCount(0)
   await expect(runtime.first().getByRole("combobox")).toHaveCount(0)
   expect(
@@ -98,11 +110,9 @@ test("anonymous visitors can sort, filter and inspect interface rows", async ({
       () => document.documentElement.scrollWidth <= innerWidth
     )
   ).toBe(true)
-  await expect(
-    page.getByRole("button", { name: "Unlock editing" })
-  ).toBeVisible()
+  await expectReadOnly(page)
 
-  const filter = tableView.getByRole("searchbox", { name: "Filter interfaces" })
+  const filter = tableView.getByRole("searchbox", { name: "Search component" })
   await filter.fill("  vm  ")
   await expect(body.getByRole("row")).toHaveCount(2)
   await expect(
@@ -142,6 +152,46 @@ test("anonymous visitors can sort, filter and inspect interface rows", async ({
   ).toBe(true)
 })
 
+test("bulk selection follows the table's search and network filters", async ({
+  page,
+}) => {
+  const planId = await createInterfacePlan(page.request)
+  await page.goto(`/?plan=${planId}`)
+  await page.getByRole("button", { name: "Table", exact: true }).click()
+  const selectAll = page.getByRole("button", {
+    name: "Select all",
+    exact: true,
+  })
+  const deselectAll = page.getByRole("button", {
+    name: "Deselect all",
+    exact: true,
+  })
+  const checked = page.getByRole("checkbox", { checked: true })
+  const plant = page.getByRole("button", { name: "Plant", exact: true })
+  const search = page.getByRole("searchbox", { name: "Search component" })
+
+  await selectAll.click()
+  await expect(checked).toHaveCount(3)
+  await plant.click()
+  await search.fill("Runtime")
+  await deselectAll.click()
+  await expect(checked).toHaveCount(0)
+  await expect(page.getByText("2 selected", { exact: true })).toBeVisible()
+
+  await selectAll.click()
+  await expect(page.getByText("1 selected", { exact: true })).toBeVisible()
+  await search.clear()
+  await plant.click()
+  await expect(checked).toHaveCount(1)
+  await expect(checked).toHaveAccessibleName("Select Runtime / Adapter 1")
+  await search.fill("no match")
+  await expect(selectAll).toBeDisabled()
+  await expect(deselectAll).toBeDisabled()
+  await search.clear()
+  await deselectAll.click()
+  await expect(checked).toHaveCount(0)
+})
+
 test("editors save the same interface after sorting and filtering it out", async ({
   page,
 }) => {
@@ -178,7 +228,7 @@ test("editors save the same interface after sorting and filtering it out", async
   await expect(runtime.first()).toContainText("Adapter 2")
   await expect(runtime.last().getByRole("textbox")).toHaveValue("10.50.0.35")
 
-  const filter = tableView.getByRole("searchbox", { name: "Filter interfaces" })
+  const filter = tableView.getByRole("searchbox", { name: "Search component" })
   await filter.fill("Adapter 2")
   await expect(adapter).toHaveCount(0)
   const save = tableView.getByRole("button", {

@@ -6,20 +6,21 @@ type DiagramLayout = ReturnType<typeof layoutDiagram>
 export function scopedDiagram(
   plan: Plan,
   layout: DiagramLayout,
-  focusedNetworkId: string | null,
+  networkIds: string[],
   matches?: Set<string>
 ) {
-  const network = plan.networks.find(({ id }) => id === focusedNetworkId)
-  if (!network && !matches) return { layout, focused: false }
+  const focused = networkIds.length > 0
+  if (!focused && !matches) return { layout, focused: false }
 
   const directMembers = new Set<string>()
   const networkedComponents = new Set<string>()
   for (const { componentId, networkId } of plan.interfaces) {
     if (networkId !== null) networkedComponents.add(componentId)
-    if (networkId === focusedNetworkId) directMembers.add(componentId)
+    if (networkId && networkIds.includes(networkId))
+      directMembers.add(componentId)
   }
 
-  if (!network)
+  if (!focused)
     for (const component of plan.components) directMembers.add(component.id)
   if (matches)
     for (const id of directMembers) {
@@ -60,6 +61,6 @@ export function scopedDiagram(
       topLevel: layout.topLevel.filter(({ id }) => visibleIds.has(id)),
       enclosures,
     },
-    focused: !!network,
+    focused,
   }
 }

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase } from "./workspace-settings"
+import { editorPassphrase, workspaceAction } from "./workspace-settings"
 
 async function openPlan(page: Page, snapshot: Partial<Plan>) {
   const session = await page.request.post("/api/editor-session", {
@@ -51,7 +51,9 @@ test("refine a component-only link and inspect the saved connection as a visitor
     ],
   })
 
-  await page.getByRole("button", { name: "Add link" }).click()
+  await page.getByRole("button", { name: "Add", exact: true }).click()
+
+  await page.getByRole("menuitem", { name: "Add link", exact: true }).click()
   const editor = page.getByRole("dialog", { name: "Add link" })
   await editor
     .getByRole("group", { name: "Source" })
@@ -61,7 +63,7 @@ test("refine a component-only link and inspect the saved connection as a visitor
     .getByRole("group", { name: "Target" })
     .getByLabel("Component")
     .selectOption("hmi")
-  await editor.getByLabel("Medium").selectOption("wired")
+  await editor.getByLabel("Medium").selectOption("fiberOptic")
   await editor.getByLabel("Protocol (optional)").fill("PROFINET")
   await editor.getByRole("button", { name: "Save link" }).click()
 
@@ -74,7 +76,7 @@ test("refine a component-only link and inspect the saved connection as a visitor
   expect(link.protocol).toBe("PROFINET")
 
   await page
-    .getByRole("button", { name: "Main switch to Line HMI (Wired)" })
+    .getByRole("button", { name: "Main switch to Line HMI (Fiber optic)" })
     .click()
   const inspector = page.getByRole("dialog", { name: "Link details" })
   await inspector
@@ -99,7 +101,7 @@ test("refine a component-only link and inspect the saved connection as a visitor
     },
   ])
 
-  await page.getByRole("button", { name: "Sign out" }).click()
+  await workspaceAction(page, "Sign out")
   await page.reload()
   await page
     .getByRole("button", {
@@ -205,7 +207,7 @@ test("place a component and manage networks in their panel", async ({
 }) => {
   const planId = await openPlan(page, {})
   const canvas = page.getByRole("region", { name: "Topology canvas" })
-  await page.getByRole("button", { name: "Add component" }).dragTo(canvas, {
+  await page.getByRole("button", { name: "Add", exact: true }).dragTo(canvas, {
     targetPosition: { x: 24, y: 80 },
   })
   const component = page.getByRole("dialog", { name: "Add component" })
@@ -257,7 +259,7 @@ test("keeps new items on screen when placed in a focused topology", async ({
   await canvas.evaluate((element) => element.scrollTo(0, 0))
   await canvas.scrollIntoViewIfNeeded()
 
-  await page.getByRole("button", { name: "Add component" }).dragTo(canvas, {
+  await page.getByRole("button", { name: "Add", exact: true }).dragTo(canvas, {
     targetPosition: { x: 80, y: 80 },
   })
   const component = page.getByRole("dialog", { name: "Add component" })
@@ -349,7 +351,7 @@ test("enclose guests with their host and distinguish selectable virtual, wired, 
       },
     ],
   })
-  await page.getByRole("button", { name: "Sign out" }).click()
+  await workspaceAction(page, "Sign out")
   const enclosure = page.getByRole("group", {
     name: "Edge server host enclosure",
   })
@@ -457,7 +459,7 @@ test("keeps unassigned guests and their links in the host network", async ({
     ],
   })
 
-  await page.getByRole("button", { name: "Sign out" }).click()
+  await workspaceAction(page, "Sign out")
   await page.getByRole("button", { name: "Plant LAN", exact: true }).click()
   const enclosure = page.getByRole("group", {
     name: "Edge server host enclosure",
@@ -477,10 +479,30 @@ test("keeps unassigned guests and their links in the host network", async ({
   await expect(inspector.getByText("Modbus TCP", { exact: true })).toBeVisible()
   await inspector.getByRole("button", { name: "Close" }).click()
 
-  await page.getByRole("button", { name: "Control LAN", exact: true }).click()
+  const plant = page.getByRole("button", { name: "Plant LAN", exact: true })
+  const control = page.getByRole("button", { name: "Control LAN", exact: true })
+  await control.click()
+  await expect(plant).toHaveAttribute("aria-pressed", "true")
+  await expect(control).toHaveAttribute("aria-pressed", "true")
   await expect(
     enclosure.getByRole("button", { name: "Control VM", exact: true })
   ).toBeVisible()
+  await expect(virtualLink).toBeVisible()
+  await page.getByRole("button", { name: "Table", exact: true }).click()
+  const table = page.getByRole("table", { name: "Interfaces" })
+  await expect(
+    table.getByRole("button", { name: "Edge server", exact: true })
+  ).toBeVisible()
+  await expect(
+    table.getByRole("button", { name: "Control VM", exact: true })
+  ).toBeVisible()
+  await expect(
+    table.getByRole("button", { name: "Unassigned VM", exact: true })
+  ).toHaveCount(0)
+  await page.reload()
+  await expect(control).toHaveAttribute("aria-pressed", "true")
+  await expect(plant).toHaveAttribute("aria-pressed", "true")
+  await plant.click()
   await expect(
     enclosure.getByRole("button", { name: "Unassigned VM", exact: true })
   ).toHaveCount(0)
@@ -526,7 +548,7 @@ test("rename, duplicate and connect from the canvas with confirmed network chang
     (await page.request.get("/api/plans/" + planId)).json()
   const button = (name: string) =>
     page.getByRole("button", { name, exact: true })
-  await button("Edit plan").click()
+  await workspaceAction(page, "Edit plan")
   await page.getByLabel("Plan name").fill("Packaging cell")
   await button("Save plan").click()
   await expect(
@@ -537,7 +559,11 @@ test("rename, duplicate and connect from the canvas with confirmed network chang
   const originalWidth = (await plc.boundingBox())!.width
   await button("Zoom in").click()
   expect((await plc.boundingBox())!.width).toBeCloseTo(originalWidth * 1.25)
+  const slider = page.getByRole("slider", { name: "Diagram zoom" })
+  await slider.press("ArrowRight")
+  await expect(button("Reset zoom")).toHaveText("126%")
   await button("Reset zoom").click()
+  await expect(button("Reset zoom")).toHaveText("100%")
   await plc.click({ button: "right" })
   await button("Duplicate").click()
   const copy = canvas.getByRole("button", { name: "PLC copy", exact: true })
@@ -575,7 +601,7 @@ test("rename, duplicate and connect from the canvas with confirmed network chang
   await button("Controls").click()
   await page.getByRole("searchbox", { name: "Search plan" }).fill("PROFINET")
   await button("Table").click()
-  await expect(page.getByLabel("Filter interfaces")).toHaveValue("PROFINET")
+  await expect(page.getByLabel("Search component")).toHaveValue("PROFINET")
   await expect(
     page
       .getByRole("table", { name: "Interfaces", exact: true })
@@ -686,4 +712,26 @@ test("create from the library at zoom and connect an edited interface using a ne
   ])
   expect(plan.links).toHaveLength(1)
   expect(plan.links[0].lineType).toBe("elbow")
+})
+
+test("duplicate gives a component a free name when a copy already exists", async ({
+  page,
+}) => {
+  await openPlan(page, {
+    components: ["Switch", " SWITCH COPY "].map((name, index) => ({
+      id: String(index),
+      name,
+      type: "Switch",
+      position: { x: 30 + 240 * index, y: 40 },
+      hostId: null,
+    })),
+  })
+  const canvas = page.getByRole("region", { name: "Topology canvas" })
+  await canvas
+    .getByRole("button", { name: "Switch", exact: true })
+    .click({ button: "right" })
+  await page.getByRole("button", { name: "Duplicate", exact: true }).click()
+  await expect(
+    canvas.getByRole("button", { name: "Switch copy 2", exact: true })
+  ).toBeVisible()
 })

@@ -1,3 +1,4 @@
+import { IconCheck, IconX } from "@tabler/icons-react"
 import { useId, useState, type FormEvent, type ReactNode } from "react"
 import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
@@ -100,10 +101,10 @@ export function PlanNameDialog({
               onClick={onClose}
               className="min-h-11"
             >
-              Cancel
+              <IconX aria-hidden="true" data-icon="inline-start" /> Cancel
             </Button>
             <Button type="submit" disabled={busy} className="min-h-11">
-              {action}
+              <IconCheck aria-hidden="true" data-icon="inline-start" /> {action}
             </Button>
           </div>
         </form>
