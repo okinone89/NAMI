@@ -44,9 +44,10 @@ export function InventoryCommitAction({
       onPlanChanged?.()
       if ("preview" in result) {
         review.replacePreview(result.preview)
-        setNotice(
-          "The plan changed. Review the refreshed preview before confirming."
-        )
+        if (bulkEdit)
+          setNotice(
+            "The plan changed. Review the refreshed preview before confirming."
+          )
       } else {
         if (result.undo) onImported?.(result.undo.importId)
         review.close()
