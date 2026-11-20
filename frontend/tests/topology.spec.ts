@@ -255,6 +255,7 @@ test("keeps new items on screen when placed in a focused topology", async ({
   })
   await existing.click()
   await canvas.evaluate((element) => element.scrollTo(0, 0))
+  await canvas.scrollIntoViewIfNeeded()
 
   await page.getByRole("button", { name: "Add component" }).dragTo(canvas, {
     targetPosition: { x: 80, y: 80 },
@@ -653,6 +654,7 @@ test("create from the library at zoom and connect an edited interface using a ne
   )
   await search.fill("controllers plc")
   await expect(library.getByRole("button")).toHaveCount(2)
+  await canvas.scrollIntoViewIfNeeded()
   await library
     .getByRole("region", { name: "Controllers & HMI" })
     .getByRole("button", { name: "PLC", exact: true })
