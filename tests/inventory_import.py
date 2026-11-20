@@ -8,7 +8,7 @@ import unittest
 from urllib.request import urlopen
 
 from editor_sessions import request, settings_for
-from plan_api import unlock
+from plan_api import seed_legacy_topology, unlock
 from startup import postgres_settings, running_api
 
 
@@ -341,13 +341,8 @@ class InventoryImport(unittest.TestCase):
             with running_api(directory, settings_for(directory)) as address:
                 cookie = unlock(address)
                 path, plan = inventory_plan(address, cookie)
-                plan["components"].append({"id": "plc-c", "name": "Capper PLC", "type": "PLC"})
-                plan["interfaces"].append({"id": "lan-c", "componentId": "plc-c", "name": "LAN C"})
-                status, plan, _ = request(address, path, "PUT", plan, cookie)
-                self.assertEqual(status, 200)
                 incoming = {"rows": [
                     {"rowNumber": 2, "componentName": "Capper PLC", "interfaceName": "LAN B"},
-                    {"rowNumber": 3, "componentName": "Capper PLC", "interfaceName": "LAN D"},
                     {"rowNumber": 4, "componentName": "Packer PLC", "interfaceName": "LAN E"},
                     {"rowNumber": 5, "componentName": "packer plc", "interfaceName": "LAN F", "componentType": "PLC"},
                 ]}
@@ -357,22 +352,81 @@ class InventoryImport(unittest.TestCase):
                     self.assertEqual(status, 200)
                     return result["rows"]
 
-                unique, ambiguous, first, second = preview()
+                unique, first, second = preview()
                 self.assertEqual(unique["interfaceId"], "lan-b")
-                self.assertEqual(ambiguous["errors"][0]["code"], "ambiguousMatch")
                 self.assertEqual(first["componentId"], second["componentId"])
                 self.assertNotEqual(first["interfaceId"], second["interfaceId"])
                 self.assertEqual([row["after"]["componentType"] for row in (first, second)], ["PLC", "PLC"])
                 self.assertEqual([row["after"]["componentName"] for row in (first, second)], ["Packer PLC", "Packer PLC"])
 
-                incoming["rows"][2]["componentType"] = "Switch"
-                _, _, first, second = preview()
+                incoming["rows"][1]["componentType"] = "Switch"
+                _, first, second = preview()
                 self.assertEqual([row["errors"][0]["code"] for row in (first, second)],
                                  ["inconsistentComponentType", "inconsistentComponentType"])
 
-                plan["interfaces"][-1]["name"] = "LAN B"
-                self.assertEqual(request(address, path, "PUT", plan, cookie)[0], 200)
-                self.assertEqual(preview()[0]["errors"][0]["code"], "ambiguousMatch")
+    def test_legacy_name_matches_require_an_explicit_component_then_port_choice(self):
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            settings = settings_for(directory)
+            with running_api(directory, settings) as address:
+                cookie = unlock(address)
+                path, plan = inventory_plan(address, cookie)
+                plan["components"].append({"id": "plc-c", "name": " CAPPER PLC ", "type": "PLC"})
+                plan["interfaces"].append({"id": "lan-c", "componentId": "plc-b", "name": " lan b "})
+                seed_legacy_topology(settings, plan)
+                draft = {"rows": [{"rowNumber": 2, "componentName": "capper plc",
+                                   "interfaceName": " LAN B ", "ipv4": "192.168.1.42"}], "answers": {}}
+
+                def preview():
+                    status, body, _ = request(address, path + "/inventory/preview", "POST", draft, cookie)
+                    self.assertEqual(status, 200)
+                    return body
+
+                initial = preview()
+                self.assertFalse(initial["canApply"])
+                component, = initial["decisions"]
+                self.assertEqual({c["id"] for c in component["choices"]}, {"plc-b", "plc-c"})
+                self.assertIn("Capper PLC", component["message"])
+                self.assertEqual(component["rowNumbers"], [2])
+                draft["answers"][component["id"]] = "plc-a"
+                self.assertFalse(preview()["canApply"])
+                draft["answers"][component["id"]] = "plc-b"
+                second = preview()
+                self.assertFalse(second["canApply"])
+                port, = second["decisions"]
+                self.assertEqual({c["id"] for c in port["choices"]}, {"lan-b", "lan-c"})
+                self.assertIn("Capper PLC", port["message"])
+                draft["answers"][port["id"]] = "lan-b"
+                resolved = preview()
+                self.assertTrue(resolved["canApply"])
+                self.assertEqual(resolved["decisions"], [])
+                status, body, _ = request(address, path + "/inventory/commit", "POST",
+                                          {**draft, "stateToken": resolved["stateToken"]}, cookie)
+                self.assertEqual(status, 200)
+                self.assertEqual({p["id"]: p["ipv4"] for p in body["plan"]["interfaces"]},
+                                 {"lan-a": "192.168.1.10", "lan-b": "192.168.1.42", "lan-c": None})
+
+    def test_repeated_port_references_create_one_port_and_reimport_without_changes(self):
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            with running_api(directory, settings_for(directory)) as address:
+                cookie = unlock(address)
+                path, saved = inventory_plan(address, cookie)
+                draft = {"rows": [
+                    {"rowNumber": 2, "componentName": "  Switch ", "interfaceName": "P08", "componentType": "Switch"},
+                    {"rowNumber": 3, "componentName": "switch", "interfaceName": " p08 ", "componentType": "Switch"},
+                ]}
+                status, preview, _ = request(address, path + "/inventory/preview", "POST", draft, cookie)
+                self.assertEqual(status, 200)
+                self.assertTrue(preview["canApply"])
+                status, body, _ = request(address, path + "/inventory/commit", "POST",
+                                          {**draft, "stateToken": preview["stateToken"]}, cookie)
+                self.assertEqual(status, 200)
+                switch, = [c for c in body["plan"]["components"] if c["name"] == "Switch"]
+                self.assertEqual([p["name"] for p in body["plan"]["interfaces"] if p["componentId"] == switch["id"]], ["P08"])
+                status, preview, _ = request(address, path + "/inventory/preview", "POST", draft, cookie)
+                self.assertFalse(preview["canApply"])
+                self.assertTrue(all(not r["errors"] and not r["hasChanges"] for r in preview["rows"]))
 
     def test_preview_token_tracks_selected_interface_records_but_ignores_unrelated_edits(self):
         with TemporaryDirectory() as tmp:

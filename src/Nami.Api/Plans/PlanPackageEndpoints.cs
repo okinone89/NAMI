@@ -80,6 +80,10 @@ internal static class PlanPackageEndpoints
             return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest, title: error.Message,
                 extensions: new Dictionary<string, object?> { ["addressIssues"] = error.Issues });
         }
+        catch (InventoryNameException error)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest, title: error.Message);
+        }
         catch (ArgumentException)
         {
             return InvalidPackage();

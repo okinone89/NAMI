@@ -6,10 +6,18 @@ export function duplicateComponent(
   position: DiagramPosition
 ): Plan {
   const id = crypto.randomUUID()
+  const baseName = component.name.trim() + " copy"
+  const existingNames = new Set(
+    plan.components.map((item) => item.name.trim().toUpperCase())
+  )
+  let name = baseName
+  for (let suffix = 2; existingNames.has(name.toUpperCase()); suffix++) {
+    name = baseName + " " + suffix
+  }
   const copy = {
     ...component,
     id,
-    name: component.name + " copy",
+    name,
     position: { x: position.x + 32, y: position.y + 32 },
   }
   const ports = plan.interfaces.filter((p) => p.componentId === component.id)
