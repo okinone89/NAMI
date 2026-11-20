@@ -8,7 +8,7 @@ internal sealed record InventoryPreviewRequest(
     IReadOnlyList<InventoryImportRow>? Rows,
     IReadOnlyList<AddressConflictApproval>? KeepAddressConflicts = null);
 
-/// <summary>One interface row. Absent fields preserve existing values unless named in Clear.</summary>
+/// <summary>One component or interface inventory row. Absent fields preserve existing values unless named in Clear.</summary>
 internal sealed record InventoryImportRow(
     int RowNumber,
     string? ComponentId = null,
@@ -20,7 +20,12 @@ internal sealed record InventoryImportRow(
     string? NetworkName = null,
     string? Ipv4 = null,
     IReadOnlyList<string>? Clear = null,
-    bool Skip = false);
+    bool Skip = false,
+    string? NetworkSubnet = null,
+    string? LinkPartner = null,
+    string? PartnerPort = null,
+    string? ConnectionType = null,
+    string? LinkProtocol = null);
 
 /// <summary>The stored or proposed inventory values for an interface.</summary>
 internal sealed record InventoryValues(
@@ -81,12 +86,12 @@ internal static class InventoryPreview
         }
         ResolveNewComponents(candidates);
 
-        var edits = candidates.Where(row => row.After is not null && row.Errors.Count == 0).ToArray();
+        var edits = candidates.Where(row => row.Component is not null && row.Errors.Count == 0).ToArray();
         var changes = edits.Where(row => row.Before != row.After).ToArray();
         var byInterface = changes.ToDictionary(row => row.After!.Id, row => row.After!);
         var proposed = current with
         {
-            Components = current.Components.Concat(changes.Where(row => row.AddsComponent)
+            Components = current.Components.Concat(edits.Where(row => row.AddsComponent)
                 .Select(row => row.Component!).DistinctBy(component => component.Id)).ToArray(),
             Interfaces = current.Interfaces.Select(port => byInterface.GetValueOrDefault(port.Id, port))
                 .Concat(changes.Where(row => row.Before is null).Select(row => row.After!)).ToArray()
@@ -97,14 +102,15 @@ internal static class InventoryPreview
         var blockingIssues = ByInterface(blockers);
         var previewRows = candidates.Select(row =>
         {
-            var hasChanges = row.After is not null && row.Before != row.After;
+            var componentOnly = row.Component is not null && row.TargetInterfaceId is null && row.Errors.Count == 0;
+            var hasChanges = componentOnly ? row.AddsComponent : row.After is not null && row.Before != row.After;
             var visible = row.TargetInterfaceId is not null && row.Errors.Count == 0;
             var issues = visible ? addressIssues[row.TargetInterfaceId!].ToArray() : [];
             var blocking = visible ? blockingIssues[row.TargetInterfaceId!].ToArray() : [];
             return new InventoryPreviewRow(
                 row.Input.RowNumber, row.Match, row.Component?.Id, row.TargetInterfaceId,
-                row.Before is { } before ? index.Values(row.Component!, before) : null,
-                row.After is { } after ? index.Values(row.Component!, after) : null,
+                row.Before is not null || (componentOnly && !row.AddsComponent) ? index.Values(row.Component!, row.Before) : null,
+                row.After is not null || componentOnly ? index.Values(row.Component!, row.After) : null,
                 row.Input.Clear ?? [], row.AddsComponent, hasChanges,
                 hasChanges && row.Errors.Count == 0 && blocking.Length == 0, row.Errors, issues, blocking);
         }).ToArray();
@@ -127,7 +133,7 @@ internal static class InventoryPreview
 
     private static void ResolveNewComponents(IEnumerable<Candidate> candidates)
     {
-        var groups = candidates.Where(row => row.AddsComponent && row.After is not null && row.Errors.Count == 0)
+        var groups = candidates.Where(row => row.AddsComponent && row.Errors.Count == 0)
             .GroupBy(row => row.Component!.Id);
         foreach (var group in groups)
         {
@@ -158,6 +164,19 @@ internal static class InventoryPreview
             return candidate;
         }
 
+        (string Heading, string? Value)[] unsupportedFields =
+        [
+            ("Network subnet", row.NetworkSubnet),
+            ("Link partner", row.LinkPartner),
+            ("Partner port", row.PartnerPort),
+            ("Connection type", row.ConnectionType),
+            ("Link protocol", row.LinkProtocol)
+        ];
+        var populated = unsupportedFields.Where(field => NonBlank(field.Value) is not null)
+            .Select(field => field.Heading).ToArray();
+        if (populated.Length > 0)
+            return candidate.Fail("unsupportedFields", $"Inventory import does not yet support {string.Join(", ", populated)}.");
+
         var componentId = NonBlank(row.ComponentId);
         var interfaceId = NonBlank(row.InterfaceId);
         var componentName = NonBlank(row.ComponentName);
@@ -178,8 +197,8 @@ internal static class InventoryPreview
         }
         else
         {
-            if (interfaceName is null || (component is null && componentName is null))
-                return candidate.Fail("missingName", "Provide the component and interface names or their stable IDs.");
+            if (component is null && componentName is null)
+                return candidate.Fail("missingName", "Provide the component name.");
 
             var components = component is not null
                 ? [component] : index.ComponentsByName[componentName!].ToArray();
@@ -199,6 +218,14 @@ internal static class InventoryPreview
         candidate.AddsComponent = component is null;
         component ??= index.NewComponent(componentName!);
         candidate.Component = component;
+        if (interfaceName is null && port is null)
+        {
+            if (NonBlank(row.NetworkName) is not null || NonBlank(row.NetworkId) is not null ||
+                NonBlank(row.Ipv4) is not null || row.Clear is { Count: > 0 })
+                return candidate.Fail("missingInterface", "Provide the interface name to assign a network or IPv4 address.");
+            candidate.Match = candidate.AddsComponent ? "addition" : "name";
+            return candidate;
+        }
         candidate.Match = port is null ? "addition" : componentId is not null || interfaceId is not null ? "id" : "name";
         candidate.Before = port;
         candidate.TargetInterfaceId = port?.Id ?? index.NewInterfaceId(component.Id, interfaceName!);
@@ -270,9 +297,9 @@ internal static class InventoryPreview
         public ILookup<string, PlanInterface> InterfacesByComponent { get; } = plan.Interfaces.ToLookup(port => port.ComponentId);
         public ILookup<string, PlanNetwork> NetworksByName { get; } = plan.Networks.ToLookup(network => network.Name, Names);
 
-        public InventoryValues Values(Component component, PlanInterface port) => new(
-            component.Name, component.Type, port.Name, port.NetworkId,
-            port.NetworkId is { } networkId ? Networks[networkId].Name : null, port.Ipv4);
+        public InventoryValues Values(Component component, PlanInterface? port) => new(
+            component.Name, component.Type, port?.Name ?? "", port?.NetworkId,
+            port?.NetworkId is { } networkId ? Networks[networkId].Name : null, port?.Ipv4);
 
         public Component NewComponent(string name) =>
             new(AvailableId("component", name.ToUpperInvariant(), "", Components.ContainsKey), name, "Other");

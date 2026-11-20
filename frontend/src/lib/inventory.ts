@@ -4,35 +4,28 @@ import type {
 } from "@/lib/address-issues"
 import { PlanRequestError, type Plan } from "@/lib/plans"
 
+export const inventoryCsvFields = [
+  { key: "componentName", label: "Component" },
+  { key: "interfaceName", label: "Interface" },
+  { key: "componentType", label: "Component type" },
+  { key: "networkName", label: "Network" },
+  { key: "networkSubnet", label: "Network subnet" },
+  { key: "ipv4", label: "IPv4" },
+  { key: "linkPartner", label: "Link partner" },
+  { key: "partnerPort", label: "Partner port" },
+  { key: "connectionType", label: "Connection type" },
+  { key: "linkProtocol", label: "Link protocol" },
+] as const
+
+const inventoryIdFields = [
+  { key: "componentId", label: "Component ID" },
+  { key: "interfaceId", label: "Interface ID" },
+  { key: "networkId", label: "Network ID" },
+] as const
+
 export const inventoryFields = [
-  { key: "componentId", label: "Component ID", headings: ["componentid"] },
-  { key: "interfaceId", label: "Interface ID", headings: ["interfaceid"] },
-  {
-    key: "componentName",
-    label: "Component",
-    headings: ["component", "componentname"],
-  },
-  {
-    key: "interfaceName",
-    label: "Interface",
-    headings: ["interface", "interfacename"],
-  },
-  {
-    key: "componentType",
-    label: "Component type",
-    headings: ["componenttype", "type"],
-  },
-  { key: "networkId", label: "Network ID", headings: ["networkid"] },
-  {
-    key: "networkName",
-    label: "Network",
-    headings: ["network", "networkname"],
-  },
-  {
-    key: "ipv4",
-    label: "IPv4 address",
-    headings: ["ipv4", "ipv4address", "ip", "ipaddress"],
-  },
+  ...inventoryCsvFields,
+  ...inventoryIdFields,
 ] as const
 
 export type InventoryField = (typeof inventoryFields)[number]["key"]
@@ -44,6 +37,7 @@ export type InventoryImportRow = Partial<Record<InventoryField, string>> & {
 }
 export type InventoryPreviewRequest = {
   rows: InventoryImportRow[]
+  answers?: Record<string, string>
   keepAddressConflicts?: AddressConflictApproval[]
 }
 export type InventoryValues = {
@@ -70,6 +64,13 @@ export type InventoryPreviewRow = {
   blockingAddressIssues: AddressIssue[]
 }
 export type InventoryPreview = {
+  decisions?: {
+    id: string
+    title: string
+    message: string
+    rowNumbers: number[]
+    choices: { id: string; label: string }[]
+  }[]
   rows: InventoryPreviewRow[]
   stateToken: string
   canApply: boolean
@@ -157,18 +158,10 @@ async function inventoryError(response: Response, fallback: string) {
 }
 
 export function defaultInventoryMapping(headings: string[]): InventoryMapping {
-  const used = new Set<InventoryField>()
-  return headings.map((heading) => {
-    const normalized = heading.toLowerCase().replace(/[^a-z0-9]/g, "")
-    const match = inventoryFields.find(
-      (field) =>
-        !used.has(field.key) &&
-        field.headings.some((alias) => alias === normalized)
-    )
-    if (!match) return ""
-    used.add(match.key)
-    return match.key
-  })
+  return headings.map(
+    (heading) =>
+      inventoryCsvFields.find((field) => field.label === heading)?.key ?? ""
+  )
 }
 
 export function mapInventoryRows(
@@ -256,16 +249,36 @@ export function parseInventory(input: string): Spreadsheet {
     throw new Error(`Close the quoted value in spreadsheet row ${rowNumber}.`)
   finishRow()
   const [header, ...rows] = records
-  if (!header || !rows.length)
-    throw new Error("Provide a header row and at least one interface row.")
+  if (
+    header?.cells.some((heading) =>
+      inventoryIdFields.some(
+        (field) => field.label.toLowerCase() === heading.trim().toLowerCase()
+      )
+    )
+  ) {
+    throw new Error(
+      "This file contains legacy ID headers. Choose Export inventory CSV to obtain the current format."
+    )
+  }
+  const headings = header?.cells.map((heading) => heading.trim()) ?? []
+  if (
+    headings.length !== inventoryCsvFields.length ||
+    !inventoryCsvFields.every((field) => headings.includes(field.label))
+  ) {
+    throw new Error(
+      "Use all ten current headers exactly once. Choose Export inventory CSV to obtain the current format."
+    )
+  }
+  if (!rows.length)
+    throw new Error("Provide at least one inventory row below the headers.")
   if (
     rows.some((row) =>
-      row.cells.slice(header.cells.length).some((cell) => cell.trim())
+      row.cells.slice(headings.length).some((cell) => cell.trim())
     )
   ) {
     throw new Error(
       "Some rows have more cells than the header. Add headings for those columns."
     )
   }
-  return { headings: header.cells, rows }
+  return { headings, rows }
 }

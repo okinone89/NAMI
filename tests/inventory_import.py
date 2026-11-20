@@ -183,23 +183,46 @@ class InventoryImport(unittest.TestCase):
                         self.assertEqual(request(address, inventory + "/undo", "POST", change, cookie)[0], 409)
                         self.assertEqual(request(address, path)[:2], (200, edited))
 
-    def test_export_preserves_stable_ids_and_quotes_component_names(self):
+    def test_export_includes_portable_headers_quoted_names_and_components_without_interfaces(self):
         with TemporaryDirectory() as tmp:
             directory = Path(tmp)
             with running_api(directory, settings_for(directory)) as address:
-                path, _ = inventory_plan(address, unlock(address))
+                cookie = unlock(address)
+                path, plan = inventory_plan(address, cookie)
+                plan["components"].append({"id": "cabinet", "name": "Cabinet", "type": "Other"})
+                self.assertEqual(request(address, path, "PUT", plan, cookie)[0], 200)
                 with urlopen(address + path + "/inventory.csv", timeout=5) as response:
                     self.assertEqual(response.headers.get_content_type(), "text/csv")
                     self.assertIn("attachment", response.headers["Content-Disposition"])
-                    rows = list(csv.DictReader(StringIO(response.read().decode("utf-8-sig"))))
+                    rows = list(csv.reader(StringIO(response.read().decode("utf-8-sig"))))
                 self.assertEqual(rows, [
-                    {"Component ID": "plc-a", "Interface ID": "lan-a", "Component": 'Filler, "Line A"',
-                     "Interface": "LAN A", "Component type": "PLC", "Network ID": "cell-a",
-                     "Network": "Cell A", "IPv4": "192.168.1.10"},
-                    {"Component ID": "plc-b", "Interface ID": "lan-b", "Component": "Capper PLC",
-                     "Interface": "LAN B", "Component type": "PLC", "Network ID": "cell-a",
-                     "Network": "Cell A", "IPv4": "192.168.1.20"},
+                    ["Component", "Interface", "Component type", "Network", "Network subnet", "IPv4",
+                     "Link partner", "Partner port", "Connection type", "Link protocol"],
+                    ['Filler, "Line A"', "LAN A", "PLC", "Cell A", "192.168.1.0/24", "192.168.1.10", "", "", "", ""],
+                    ["Capper PLC", "LAN B", "PLC", "Cell A", "192.168.1.0/24", "192.168.1.20", "", "", "", ""],
+                    ["Cabinet", "", "Other", "", "", "", "", "", "", ""],
                 ])
+
+    def test_preview_blocks_populated_subnet_and_link_fields_until_they_can_be_imported(self):
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            with running_api(directory, settings_for(directory)) as address:
+                cookie = unlock(address)
+                path, saved = inventory_plan(address, cookie)
+                supplied = {"networkSubnet": "192.168.1.0/24", "linkPartner": "Capper PLC",
+                            "partnerPort": "LAN B", "connectionType": "Wired", "linkProtocol": "Ethernet"}
+                rows = [{"rowNumber": 2, "componentName": 'Filler, "Line A"', "interfaceName": "LAN A",
+                         "ipv4": "192.168.1.41", **supplied}]
+                status, preview, _ = request(address, path + "/inventory/preview", "POST", {"rows": rows}, cookie)
+                self.assertEqual(status, 200)
+                self.assertFalse(preview["canApply"])
+                messages = " ".join(error["message"] for error in preview["rows"][0]["errors"])
+                for field in ("Network subnet", "Link partner", "Partner port", "Connection type", "Link protocol"):
+                    self.assertIn(field, messages)
+                status, _, _ = request(address, path + "/inventory/commit", "POST",
+                                       {"rows": rows, "stateToken": preview["stateToken"]}, cookie)
+                self.assertEqual(status, 409)
+                self.assertEqual(request(address, path)[:2], (200, saved))
 
     def test_preview_matches_ids_and_falls_back_to_unique_names_without_writing(self):
         with TemporaryDirectory() as tmp:

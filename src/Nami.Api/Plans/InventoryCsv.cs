@@ -6,17 +6,19 @@ internal static class InventoryCsv
 {
     public static byte[] Export(Plan plan)
     {
-        var components = plan.Components.ToDictionary(component => component.Id);
+        var ports = plan.Interfaces.ToLookup(port => port.ComponentId);
         var networks = plan.Networks.ToDictionary(network => network.Id);
-        var csv = new StringBuilder("\uFEFFComponent ID,Interface ID,Component,Interface,Component type,Network ID,Network,IPv4\r\n");
-        foreach (var port in plan.Interfaces)
+        var csv = new StringBuilder("\uFEFFComponent,Interface,Component type,Network,Network subnet,IPv4,Link partner,Partner port,Connection type,Link protocol\r\n");
+        foreach (var component in plan.Components)
         {
-            var component = components[port.ComponentId];
-            var network = port.NetworkId is { } networkId ? networks[networkId] : null;
-            string?[] cells = [component.Id, port.Id, component.Name, port.Name, component.Type,
-                network?.Id, network?.Name, port.Ipv4];
-            csv.AppendJoin(',', cells.Select(Escape));
-            csv.Append("\r\n");
+            foreach (var port in ports[component.Id].DefaultIfEmpty())
+            {
+                var network = port?.NetworkId is { } networkId ? networks[networkId] : null;
+                string?[] cells = [component.Name, port?.Name, component.Type, network?.Name,
+                    network?.Subnet, port?.Ipv4, null, null, null, null];
+                csv.AppendJoin(',', cells.Select(Escape));
+                csv.Append("\r\n");
+            }
         }
         return Encoding.UTF8.GetBytes(csv.ToString());
     }
