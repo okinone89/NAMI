@@ -46,6 +46,7 @@ export type InventoryValues = {
   interfaceName: string
   networkId: string | null
   networkName: string | null
+  networkSubnet: string | null
   ipv4: string | null
 }
 export type InventoryPreviewRow = {

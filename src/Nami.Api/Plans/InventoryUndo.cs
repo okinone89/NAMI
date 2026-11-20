@@ -10,7 +10,8 @@ internal sealed record InventoryUndoReceipt(
     string ImportId,
     IReadOnlyList<InventoryInterfaceUndo> Interfaces,
     IReadOnlyDictionary<string, string> AddedComponents,
-    IReadOnlyList<AddressConflictApproval> PreviousConflicts)
+    IReadOnlyList<AddressConflictApproval> PreviousConflicts,
+    IReadOnlyList<InventoryRecordUndo<PlanNetwork>>? Networks = null)
 {
     public static InventoryUndoReceipt Create(Plan before, Plan after)
     {
@@ -21,14 +22,19 @@ internal sealed record InventoryUndoReceipt(
         var interfaces = after.Interfaces.Where(port => port != existingInterfaces.GetValueOrDefault(port.Id))
             .Select(port => new InventoryInterfaceUndo(
                 port.Id, InventoryPreview.Hash(port), existingInterfaces.GetValueOrDefault(port.Id))).ToArray();
+        var networks = InventoryRecordUndo<PlanNetwork>.Capture(before.Networks, after.Networks, network => network.Id);
         var affected = interfaces.Select(port => port.Id).ToHashSet();
         var previousConflicts = ConflictApprovals(before)
             .Where(conflict => conflict.InterfaceIds.Any(affected.Contains)).ToArray();
-        return new(Guid.NewGuid().ToString(), interfaces, addedComponents, previousConflicts);
+        return new(Guid.NewGuid().ToString(), interfaces, addedComponents, previousConflicts, Networks: networks);
     }
 
     public InventoryUndoReview Review(Plan current)
     {
+        var networkChanges = Networks ?? [];
+        if (InventoryRecordUndo<PlanNetwork>.IsStale(networkChanges, current.Networks, network => network.Id))
+            return Unavailable("An affected network changed after import.");
+        var restoredNetworks = InventoryRecordUndo<PlanNetwork>.Restore(networkChanges, current.Networks, network => network.Id);
         var ports = current.Interfaces.ToDictionary(port => port.Id);
         var components = current.Components.ToDictionary(component => component.Id);
         if (Interfaces.Any(change => !ports.TryGetValue(change.Id, out var port) ||
@@ -57,10 +63,15 @@ internal sealed record InventoryUndoReceipt(
 
         var proposed = current with
         {
+            Networks = restoredNetworks,
             Components = current.Components.Where(component => !AddedComponents.ContainsKey(component.Id)).ToArray(),
             Interfaces = current.Interfaces.Where(port => !removedPorts.Contains(port.Id))
                 .Select(port => restore.GetValueOrDefault(port.Id, port)).ToArray()
         };
+        var addedNetworks = networkChanges.Where(change => change.Before is null).Select(change => change.Id).ToHashSet();
+        if (proposed.Interfaces.Any(port => port.NetworkId is { } id && addedNetworks.Contains(id)))
+            return Unavailable("A later interface assignment references an imported network.");
+
         var approvals = ConflictApprovals(proposed).Where(conflict =>
             PreviousConflicts.Any(previous => previous.NetworkId == conflict.NetworkId &&
                 previous.Ipv4 == conflict.Ipv4 &&
@@ -80,6 +91,31 @@ internal sealed record InventoryUndoReceipt(
 }
 
 internal sealed record InventoryInterfaceUndo(string Id, string AfterHash, PlanInterface? Before);
+
+internal sealed record InventoryRecordUndo<T>(string Id, string? AfterHash, T? Before) where T : class
+{
+    public static InventoryRecordUndo<T>[] Capture(IReadOnlyList<T> before, IReadOnlyList<T> after, Func<T, string> id)
+    {
+        var previous = before.ToDictionary(id);
+        return after.Where(item => !Equals(item, previous.GetValueOrDefault(id(item))))
+            .Select(item => new InventoryRecordUndo<T>(id(item), InventoryPreview.Hash(item), previous.GetValueOrDefault(id(item))))
+            .ToArray();
+    }
+
+    public static bool IsStale(IReadOnlyList<InventoryRecordUndo<T>> changes, IReadOnlyList<T> current, Func<T, string> id)
+    {
+        var records = current.ToDictionary(id);
+        return changes.Any(change => !records.TryGetValue(change.Id, out var record) ||
+            InventoryPreview.Hash(record) != change.AfterHash);
+    }
+
+    public static T[] Restore(IReadOnlyList<InventoryRecordUndo<T>> changes, IReadOnlyList<T> current, Func<T, string> id)
+    {
+        var affected = changes.ToDictionary(change => change.Id);
+        return current.Select(item => affected.TryGetValue(id(item), out var change) ? change.Before : item)
+            .OfType<T>().ToArray();
+    }
+}
 
 internal sealed record InventoryUndoReview(
     InventoryUndoStatus Status, Plan? Proposed, IReadOnlyList<AddressConflictApproval> Approvals);

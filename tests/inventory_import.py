@@ -203,7 +203,7 @@ class InventoryImport(unittest.TestCase):
                     ["Cabinet", "", "Other", "", "", "", "", "", "", ""],
                 ])
 
-    def test_preview_blocks_populated_subnet_and_link_fields_until_they_can_be_imported(self):
+    def test_preview_blocks_populated_link_fields_until_they_can_be_imported(self):
         with TemporaryDirectory() as tmp:
             directory = Path(tmp)
             with running_api(directory, settings_for(directory)) as address:
@@ -217,7 +217,7 @@ class InventoryImport(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertFalse(preview["canApply"])
                 messages = " ".join(error["message"] for error in preview["rows"][0]["errors"])
-                for field in ("Network subnet", "Link partner", "Partner port", "Connection type", "Link protocol"):
+                for field in ("Link partner", "Partner port", "Connection type", "Link protocol"):
                     self.assertIn(field, messages)
                 status, _, _ = request(address, path + "/inventory/commit", "POST",
                                        {"rows": rows, "stateToken": preview["stateToken"]}, cookie)

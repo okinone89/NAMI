@@ -20,6 +20,13 @@ internal static class InventoryCsv
                 csv.Append("\r\n");
             }
         }
+        var assigned = plan.Interfaces.Select(port => port.NetworkId).ToHashSet();
+        foreach (var network in plan.Networks.Where(network => !assigned.Contains(network.Id)))
+        {
+            string?[] cells = [null, null, null, network.Name, network.Subnet, null, null, null, null, null];
+            csv.AppendJoin(',', cells.Select(Escape));
+            csv.Append("\r\n");
+        }
         return Encoding.UTF8.GetBytes(csv.ToString());
     }
 

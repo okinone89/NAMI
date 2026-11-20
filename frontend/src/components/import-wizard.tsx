@@ -369,7 +369,9 @@ function RowDetails({
               : row.addsComponent
                 ? "Add component"
                 : row.match === "addition"
-                  ? "Add interface"
+                  ? row.componentId
+                    ? "Add interface"
+                    : "Add network"
                   : "Update"}
       </p>
       {row.hasChanges && (
