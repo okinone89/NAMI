@@ -31,6 +31,49 @@ def inventory_plan(address, cookie):
 
 
 class InventoryImport(unittest.TestCase):
+    def test_unchanged_and_skipped_commits_preserve_the_plan_and_last_import(self):
+        for provider in ("SQLite", "PostgreSQL"):
+            with self.subTest(provider=provider), TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                database = postgres_settings(directory) if provider == "PostgreSQL" else nullcontext({})
+                with database as settings, running_api(directory, {**settings_for(directory), **settings}) as address:
+                    cookie = unlock(address)
+                    path, original = inventory_plan(address, cookie)
+                    inventory = path + "/inventory"
+
+                    def preview(rows):
+                        status, result, _ = request(address, inventory + "/preview", "POST", {"rows": rows}, cookie)
+                        self.assertEqual(status, 200)
+                        return result
+
+                    def commit(rows, token):
+                        return request(address, inventory + "/commit", "POST", {"rows": rows, "stateToken": token}, cookie)[:2]
+
+                    def verify_no_writes(plan, expected_undo):
+                        for row in ({"ipv4": plan["interfaces"][0]["ipv4"]}, {"ipv4": "192.168.1.99", "skip": True}):
+                            rows = [{"rowNumber": 2, "interfaceId": "lan-a", **row}]
+                            result = preview(rows)
+                            self.assertFalse(result["canApply"])
+                            self.assertEqual(result["decisions"], [])
+                            self.assertEqual(result["rows"][0]["errors"], [])
+                            self.assertEqual(commit(rows, result["stateToken"]), (409, result))
+                            self.assertEqual(request(address, path)[:2], (200, plan))
+                            self.assertEqual(request(address, inventory + "/undo")[:2], expected_undo)
+
+                    verify_no_writes(original, (204, None))
+                    change = [{"rowNumber": 2, "interfaceId": "lan-a", "ipv4": "192.168.1.44"}]
+                    token = preview(change)["stateToken"]
+                    status, committed = commit(change, token)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(committed["plan"]["interfaces"][0]["ipv4"], "192.168.1.44")
+                    # Retrying the original confirmation refreshes the preview to the saved state.
+                    self.assertEqual(commit(change, token), (409, preview(change)))
+                    verify_no_writes(committed["plan"], (200, committed["undo"]))
+                    status, restored, _ = request(address, inventory + "/undo", "POST",
+                                                  {"importId": committed["undo"]["importId"]}, cookie)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(restored["interfaces"], original["interfaces"])
+
     def test_commits_selected_changes_and_additions_together_on_both_providers(self):
         for provider in ("SQLite", "PostgreSQL"):
             with self.subTest(provider=provider), TemporaryDirectory() as tmp:
@@ -203,7 +246,7 @@ class InventoryImport(unittest.TestCase):
                     ["Cabinet", "", "Other", "", "", "", "", "", "", ""],
                 ])
 
-    def test_preview_blocks_populated_link_fields_until_they_can_be_imported(self):
+    def test_preview_subnet_and_cabling_together_on_an_existing_network(self):
         with TemporaryDirectory() as tmp:
             directory = Path(tmp)
             with running_api(directory, settings_for(directory)) as address:
@@ -215,14 +258,13 @@ class InventoryImport(unittest.TestCase):
                          "ipv4": "192.168.1.41", **supplied}]
                 status, preview, _ = request(address, path + "/inventory/preview", "POST", {"rows": rows}, cookie)
                 self.assertEqual(status, 200)
-                self.assertFalse(preview["canApply"])
-                messages = " ".join(error["message"] for error in preview["rows"][0]["errors"])
-                for field in ("Link partner", "Partner port", "Connection type", "Link protocol"):
-                    self.assertIn(field, messages)
-                status, _, _ = request(address, path + "/inventory/commit", "POST",
-                                       {"rows": rows, "stateToken": preview["stateToken"]}, cookie)
-                self.assertEqual(status, 409)
+                self.assertTrue(preview["canApply"], preview)
                 self.assertEqual(request(address, path)[:2], (200, saved))
+                status, committed, _ = request(address, path + "/inventory/commit", "POST",
+                                               {"rows": rows, "stateToken": preview["stateToken"]}, cookie)
+                self.assertEqual(status, 200)
+                self.assertEqual(committed["plan"]["interfaces"][0]["ipv4"], "192.168.1.41")
+                self.assertEqual(committed["plan"]["links"][0]["protocol"], "Ethernet")
 
     def test_preview_matches_ids_and_falls_back_to_unique_names_without_writing(self):
         with TemporaryDirectory() as tmp:
@@ -376,7 +418,9 @@ class InventoryImport(unittest.TestCase):
                 plan["interfaces"].append({"id": "lan-c", "componentId": "plc-b", "name": " lan b "})
                 seed_legacy_topology(settings, plan)
                 draft = {"rows": [{"rowNumber": 2, "componentName": "capper plc",
-                                   "interfaceName": " LAN B ", "ipv4": "192.168.1.42"}], "answers": {}}
+                                   "interfaceName": " LAN B ", "ipv4": "192.168.1.42"},
+                                  {"rowNumber": 3, "interfaceId": "lan-a", "linkPartner": "capper plc",
+                                   "partnerPort": " LAN B ", "connectionType": "Wired"}], "answers": {}}
 
                 def preview():
                     status, body, _ = request(address, path + "/inventory/preview", "POST", draft, cookie)
@@ -388,13 +432,14 @@ class InventoryImport(unittest.TestCase):
                 component, = initial["decisions"]
                 self.assertEqual({c["id"] for c in component["choices"]}, {"plc-b", "plc-c"})
                 self.assertIn("Capper PLC", component["message"])
-                self.assertEqual(component["rowNumbers"], [2])
+                self.assertEqual(component["rowNumbers"], [2, 3])
                 draft["answers"][component["id"]] = "plc-a"
                 self.assertFalse(preview()["canApply"])
                 draft["answers"][component["id"]] = "plc-b"
                 second = preview()
                 self.assertFalse(second["canApply"])
                 port, = second["decisions"]
+                self.assertEqual(port["rowNumbers"], [2, 3])
                 self.assertEqual({c["id"] for c in port["choices"]}, {"lan-b", "lan-c"})
                 self.assertIn("Capper PLC", port["message"])
                 draft["answers"][port["id"]] = "lan-b"
@@ -404,6 +449,9 @@ class InventoryImport(unittest.TestCase):
                 status, body, _ = request(address, path + "/inventory/commit", "POST",
                                           {**draft, "stateToken": resolved["stateToken"]}, cookie)
                 self.assertEqual(status, 200)
+                link, = body["plan"]["links"]
+                self.assertCountEqual([link["source"], link["target"]], [
+                    {"componentId": "plc-a", "interfaceId": "lan-a"}, {"componentId": "plc-b", "interfaceId": "lan-b"}])
                 self.assertEqual({p["id"]: p["ipv4"] for p in body["plan"]["interfaces"]},
                                  {"lan-a": "192.168.1.10", "lan-b": "192.168.1.42", "lan-c": None})
 

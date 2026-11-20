@@ -109,6 +109,33 @@ test("clean changes go directly to one expandable import summary", async ({
   ).toHaveValue("192.168.1.25")
 })
 
+test("skipping the last unresolved row closes an unchanged plan without creating undo", async ({
+  page,
+}) => {
+  const path = "/api/plans/" + (await openInventory(page))
+  const before: Plan = await (await page.request.get(path)).json()
+  const dialog = await previewRows(page, ",LAN B,,,,192.168.1.50,,,,")
+  await expect(dialog.getByText("Provide the component name.")).toBeVisible()
+  await expect(dialog.getByRole("heading", { name: "No changes" })).toHaveCount(
+    0
+  )
+  await dialog.getByRole("radio", { name: "Skip affected rows" }).check()
+  await dialog.getByRole("button", { name: "Next" }).click()
+  await expect(
+    dialog.getByRole("heading", { name: "No changes" })
+  ).toBeVisible()
+  await expect(dialog.getByText("Skipped row 2")).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Next" })).toHaveCount(0)
+  await expect(
+    dialog.getByRole("button", { name: "Apply import" })
+  ).toHaveCount(0)
+  await dialog.getByRole("button", { name: "Close", exact: true }).click()
+  await expect(dialog).toBeHidden()
+  expect(await (await page.request.get(path)).json()).toEqual(before)
+  expect((await page.request.get(path + "/inventory/undo")).status()).toBe(204)
+  await expect(page.getByRole("button", { name: "Undo import" })).toHaveCount(0)
+})
+
 test("one decision covers a shared address conflict and Back preserves its answer", async ({
   page,
 }) => {

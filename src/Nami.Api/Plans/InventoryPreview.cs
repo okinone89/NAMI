@@ -62,7 +62,8 @@ internal sealed record InventoryPreviewResponse(
     IReadOnlyList<InventoryPreviewRow> Rows,
     string StateToken,
     bool CanApply,
-    IReadOnlyList<InventoryDecision> Decisions);
+    IReadOnlyList<InventoryDecision> Decisions,
+    IReadOnlyList<InventoryLinkPreview> Links);
 
 internal sealed record InventoryPreviewResult(InventoryPreviewResponse Response, Plan Proposed);
 
@@ -96,6 +97,15 @@ internal static partial class InventoryPreview
                 .Concat(changes.Where(row => row.Before is null).Select(row => row.After!)).ToArray()
         };
 
+        var linkPreview = ResolveLinks(proposed, edits, index, decisions);
+        var linkChanges = linkPreview.Where(link => link.Before != link.After).ToArray();
+        var linksById = linkChanges.ToDictionary(link => link.After.Id, link => link.After);
+        proposed = proposed with
+        {
+            Links = proposed.Links.Select(link => linksById.GetValueOrDefault(link.Id, link))
+                .Concat(linkChanges.Where(link => link.Before is null).Select(link => link.After)).ToArray()
+        };
+        var changedLinkRows = linkChanges.SelectMany(link => link.RowNumbers).ToHashSet();
         var addressIssues = ByInterface(AddressValidation.Inspect(proposed));
         var blockers = AddressValidation.BlockingIssues(current, proposed, request.KeepAddressConflicts);
         var subnetIssues = ReportSubnetIssues(candidates, blockers, networks, decisions);
@@ -103,11 +113,12 @@ internal static partial class InventoryPreview
         var previewRows = candidates.Select(row =>
         {
             var componentOnly = row.Component is not null && row.TargetInterfaceId is null && row.Errors.Count == 0;
-            var hasChanges = componentOnly ? row.AddsComponent : row.After is not null && row.Before != row.After;
             var networkId = row.NetworkId;
             var networkBefore = networkId is null ? null : index.StoredNetworks.GetValueOrDefault(networkId);
             var networkAfter = networkId is null ? null : networks.GetValueOrDefault(networkId);
-            hasChanges |= networkAfter is not null && networkBefore != networkAfter;
+            var hasChanges = changedLinkRows.Contains(row.Input.RowNumber) || row.AddsComponent ||
+                (row.After is not null && row.Before != row.After) ||
+                (networkAfter is not null && networkBefore != networkAfter);
             var visible = row.TargetInterfaceId is not null && row.Errors.Count == 0;
             var issues = visible ? addressIssues[row.TargetInterfaceId!].ToArray() : [];
             var blocking = visible ? blockingIssues[row.TargetInterfaceId!].ToArray() : [];
@@ -125,6 +136,7 @@ internal static partial class InventoryPreview
         {
             current.Id,
             Rows = previewRows,
+            Links = linkPreview,
             Decisions = decisions.Pending,
             NetworkRecords = current.Networks.Where(network => changedNetworks.Contains(network.Id)),
             NetworkMembers = current.Interfaces.Where(port => port.NetworkId is { } id && changedNetworks.Contains(id)),
@@ -138,7 +150,7 @@ internal static partial class InventoryPreview
         });
         var canApply = blockers.Count == 0 &&
             previewRows.Any(row => row.CanApply) && previewRows.All(row => row.Errors.Count == 0);
-        return new(new(previewRows, stateToken, canApply, decisions.Pending), proposed);
+        return new(new(previewRows, stateToken, canApply, decisions.Pending, linkPreview), proposed);
     }
 
     private static void ResolveRepeatedInterfaces(IEnumerable<Candidate> candidates, PlanIndex index, InventoryDecisions decisions)
@@ -226,18 +238,6 @@ internal static partial class InventoryPreview
             return candidate;
         }
 
-        (string Heading, string? Value)[] unsupportedFields =
-        [
-            ("Link partner", row.LinkPartner),
-            ("Partner port", row.PartnerPort),
-            ("Connection type", row.ConnectionType),
-            ("Link protocol", row.LinkProtocol)
-        ];
-        var populated = unsupportedFields.Where(field => NonBlank(field.Value) is not null)
-            .Select(field => field.Heading).ToArray();
-        if (populated.Length > 0)
-            return candidate.Fail("unsupportedFields", $"Inventory import does not yet support {string.Join(", ", populated)}.");
-
         var componentId = NonBlank(row.ComponentId);
         var interfaceId = NonBlank(row.InterfaceId);
         var componentName = NonBlank(row.ComponentName);
@@ -246,6 +246,9 @@ internal static partial class InventoryPreview
             NonBlank(row.ComponentType) is null && NonBlank(row.Ipv4) is null && row.Clear is not { Count: > 0 } &&
             (NonBlank(row.NetworkName) is not null || NonBlank(row.NetworkId) is not null))
         {
+            if (NonBlank(row.LinkPartner) is not null || NonBlank(row.PartnerPort) is not null ||
+                NonBlank(row.ConnectionType) is not null || NonBlank(row.LinkProtocol) is not null)
+                return candidate.Fail("missingName", "Provide the component name for this link.");
             candidate.NetworkOnly = true;
             candidate.StandaloneNetworkId = ResolveNetwork(candidate, index, decisions, null);
             if (candidate.NetworkId is { } matched)
@@ -276,13 +279,9 @@ internal static partial class InventoryPreview
                 var matches = index.ComponentsByName[componentName!].ToArray();
                 if (matches.Length > 1)
                 {
-                    var message = $"Choose which component named '{matches[0].Name.Trim()}' in plan '{index.Plan.Name}' these rows describe.";
-                    var id = decisions.Choose("component", index.Plan.Id, componentName!, "Choose a component",
-                        message, row.RowNumber, matches.Select(item =>
-                            new InventoryDecisionChoice(item.Id, $"{item.Name.Trim()} ({item.Type}, {item.Id})")));
-                    if (id is null)
-                        return candidate.Fail("ambiguousMatch", message);
-                    component = index.Components[id];
+                    component = ChooseComponent(matches, index, candidate, decisions);
+                    if (component is null)
+                        return candidate;
                 }
                 else
                     component = matches.SingleOrDefault();
@@ -293,13 +292,9 @@ internal static partial class InventoryPreview
                     .Where(item => Names.Equals(item.Name, interfaceName)).ToArray();
                 if (matches.Length > 1)
                 {
-                    var message = $"Choose which interface named '{matches[0].Name.Trim()}' on component '{component.Name.Trim()}' these rows describe.";
-                    var id = decisions.Choose("interface", component.Id, interfaceName!, "Choose an interface",
-                        message, row.RowNumber, matches.Select(item =>
-                            new InventoryDecisionChoice(item.Id, $"{item.Name.Trim()} ({item.Ipv4 ?? "no IPv4"}, {item.Id})")));
-                    if (id is null)
-                        return candidate.Fail("ambiguousMatch", message);
-                    port = index.Interfaces[id];
+                    port = ChooseInterface(matches, component, index, candidate, decisions);
+                    if (port is null)
+                        return candidate;
                 }
                 else
                     port = matches.SingleOrDefault();
@@ -335,6 +330,31 @@ internal static partial class InventoryPreview
             : new PlanInterface(candidate.TargetInterfaceId, component.Id,
                 interfaceName!, networkId, ipv4);
         return candidate;
+    }
+
+    private static Component? ChooseComponent(Component[] matches, PlanIndex index, Candidate row, InventoryDecisions decisions)
+    {
+        var name = matches[0].Name.Trim();
+        var message = $"Choose which component named '{name}' in plan '{index.Plan.Name}' these rows describe.";
+        var choices = matches.Select(item => index.Components.GetValueOrDefault(item.Id, item))
+            .Select(item => new InventoryDecisionChoice(item.Id, $"{item.Name.Trim()} ({item.Type}, {item.Id})"));
+        var id = decisions.Choose("component", index.Plan.Id, name, "Choose a component", message, row.Input.RowNumber, choices);
+        if (id is null)
+            row.Fail("ambiguousMatch", message);
+        return matches.SingleOrDefault(item => item.Id == id);
+    }
+
+    private static PlanInterface? ChooseInterface(PlanInterface[] matches, Component owner, PlanIndex index,
+        Candidate row, InventoryDecisions decisions)
+    {
+        var name = matches[0].Name.Trim();
+        var message = $"Choose which interface named '{name}' on component '{owner.Name.Trim()}' these rows describe.";
+        var choices = matches.Select(item => index.Interfaces.GetValueOrDefault(item.Id, item))
+            .Select(item => new InventoryDecisionChoice(item.Id, $"{item.Name.Trim()} ({item.Ipv4 ?? "no IPv4"}, {item.Id})"));
+        var id = decisions.Choose("interface", owner.Id, name, "Choose an interface", message, row.Input.RowNumber, choices);
+        if (id is null)
+            row.Fail("ambiguousMatch", message);
+        return matches.SingleOrDefault(item => item.Id == id);
     }
 
     private static string? NonBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

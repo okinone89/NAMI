@@ -98,6 +98,27 @@ test("exported equipment imports into an empty plan and matches reordered pasted
   expect(await readFile(await exportFile(), "utf8")).toEqual(
     await readFile(file, "utf8")
   )
+  const path = "/api/plans/" + target.id
+  const imported: Plan = await (await page.request.get(path)).json()
+  const receipt = await (
+    await page.request.get(path + "/inventory/undo")
+  ).json()
+  await workspaceAction(page, "Import inventory")
+  await dialog.getByLabel("CSV file").setInputFiles(file)
+  await dialog.getByRole("button", { name: "Preview import" }).click()
+  await expect(
+    dialog.getByRole("heading", { name: "No changes" })
+  ).toBeVisible()
+  await expect(
+    dialog.getByRole("button", { name: "Apply import" })
+  ).toHaveCount(0)
+  await expect(dialog.getByRole("button", { name: "Next" })).toHaveCount(0)
+  await dialog.getByRole("button", { name: "Close", exact: true }).click()
+  await expect(dialog).toBeHidden()
+  expect(await (await page.request.get(path)).json()).toEqual(imported)
+  expect(
+    await (await page.request.get(path + "/inventory/undo")).json()
+  ).toEqual(receipt)
 
   await workspaceAction(page, "Import inventory")
   await dialog
@@ -113,11 +134,53 @@ test("exported equipment imports into an empty plan and matches reordered pasted
   await dialog.getByRole("button", { name: "Load pasted rows" }).click()
   await dialog.getByRole("button", { name: "Preview import" }).click()
   await expect(
-    dialog.getByText("No changes", { exact: true }).first()
+    dialog.getByRole("heading", { name: "No changes" })
   ).toBeVisible()
-  await expect(
-    dialog
-      .getByRole("button", { name: "Apply import" })
-      .and(page.locator(":enabled"))
-  ).toHaveCount(0)
+  await dialog.getByRole("button", { name: "Close", exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await page.getByRole("button", { name: "Table", exact: true }).click()
+  await page.getByRole("button", { name: "Undo import" }).click()
+  await expect
+    .poll(async () => (await (await page.request.get(path)).json()).components)
+    .toEqual([])
+  const undone: Plan = await (await page.request.get(path)).json()
+  expect(undone.interfaces).toEqual([])
+  expect(undone.revision).toBe(imported.revision + 1)
+})
+
+test("reciprocal cabling and consistent metadata edits go directly to the summary", async ({
+  page,
+}) => {
+  const plan = await createPlan(page, "Line wiring")
+  const rows = [
+    "Component,Interface,Component type,Network,Network subnet,IPv4,Link partner,Partner port,Connection type,Link protocol",
+    "Controller,X1,PLC,,,,Switch,P8,,EtherCAT",
+    "Switch,P8,Switch,,,,Controller,X1,FO,",
+  ]
+  async function apply(source: string[]) {
+    const dialog = await openImport(page, plan)
+    await dialog.getByLabel("Spreadsheet rows").fill(source.join("\n"))
+    await dialog.getByRole("button", { name: "Load pasted rows" }).click()
+    await dialog.getByRole("button", { name: "Preview import" }).click()
+    await expect(
+      dialog.getByRole("heading", { name: "Import summary" })
+    ).toBeVisible()
+    await dialog.getByRole("button", { name: "Apply import" }).click()
+    await expect(dialog).toBeHidden()
+    const response = await page.request.get(`/api/plans/${plan.id}`)
+    expect(response.ok()).toBe(true)
+    return (await response.json()) as Plan
+  }
+  const built = await apply(rows)
+  expect(built.links).toHaveLength(1)
+  expect(built.links[0]).toMatchObject({
+    medium: "fiberOptic",
+    protocol: "EtherCAT",
+  })
+  const edited = await apply([
+    rows[0],
+    "Switch,P8,Switch,,,,Controller,X1,Wired,",
+    "Controller,X1,PLC,,,,Switch,P8,Wired,",
+  ])
+  expect(edited.links).toEqual([{ ...built.links[0], medium: "wired" }])
 })
