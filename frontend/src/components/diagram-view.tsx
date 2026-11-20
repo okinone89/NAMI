@@ -1,3 +1,4 @@
+import { IconCopy, IconPencil, IconTrash, IconX } from "@tabler/icons-react"
 import {
   useEffectEvent,
   useLayoutEffect,
@@ -8,7 +9,18 @@ import {
   type MouseEvent,
 } from "react"
 import { flushSync } from "react-dom"
-import { IconAlertTriangle, IconSchema } from "@tabler/icons-react"
+import {
+  IconAlertTriangle,
+  IconSchema,
+  IconChevronDown,
+  IconPlus,
+  IconLink,
+  IconBox,
+  IconLibrary,
+  IconZoomIn,
+  IconZoomOut,
+  IconMaximize,
+} from "@tabler/icons-react"
 import { ComponentLibrary } from "@/components/component-library"
 import { DiagramComponentLabel } from "@/components/diagram-component-label"
 import { Button } from "@/components/ui/button"
@@ -20,6 +32,7 @@ import { InterfaceLinkDialog } from "./interface-link-dialog"
 import { builtInSymbols } from "@/lib/component-appearance"
 import { duplicateComponent, deleteComponent } from "@/lib/component-actions"
 import { confirmLinkRemoval } from "@/lib/link-labels"
+import { subnetMask } from "@/lib/ipv4-subnet"
 import { networkColor } from "@/lib/network-color"
 import { useTopologyDrag } from "@/hooks/use-topology-drag"
 import {
@@ -29,7 +42,15 @@ import {
   moveDiagramComponents,
   type DiagramBox,
 } from "@/lib/diagram-layout"
-import { placementType } from "@/lib/diagram-placement"
+import { Slider } from "@/components/ui/slider"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu"
+import { placementType, diagramDragSource } from "@/lib/diagram-placement"
 import { scopedDiagram } from "@/lib/diagram-scope"
 import { searchDiagram, type DiagramSearchResult } from "@/lib/diagram-search"
 import { cn } from "@/lib/utils"
@@ -42,6 +63,7 @@ import type {
 } from "@/lib/plans"
 
 type Props = PlanViewProps & {
+  onAddComponent: () => void
   onPlaceComponent: (
     position: DiagramPosition,
     onPlaced: (componentId: string) => void,
@@ -56,14 +78,13 @@ export function DiagramView({
   plan,
   canEdit,
   onSelectComponent,
+  onAddComponent,
   onPlaceComponent,
   savePlan,
   filter,
   updateFilter,
 }: Props) {
-  const { query: searchQuery, networkId: focusedNetworkId } = filter
-  const setFocusedNetworkId = (networkId: string | null) =>
-    updateFilter({ networkId })
+  const { query: searchQuery, networkIds } = filter
   const [zoom, setZoom] = useState(1)
   const [fitInset, setFitInset] = useState({ x: 0, y: 0 })
   const linkLayer = useRef<SVGSVGElement>(null)
@@ -118,10 +139,15 @@ export function DiagramView({
     () =>
       new Set(
         searchResults
-          .filter((r) => !focusedNetworkId || r.networkId === focusedNetworkId)
-          .map(({ componentId }) => componentId)
+          .filter(
+            (result) =>
+              !networkIds.length ||
+              (result.networkId !== null &&
+                networkIds.includes(result.networkId))
+          )
+          .map((result) => result.componentId)
       ),
-    [searchResults, focusedNetworkId]
+    [searchResults, networkIds]
   )
   const highlightedComponentId = searchResults.find(
     ({ componentId, networkId }) =>
@@ -133,18 +159,18 @@ export function DiagramView({
 
   const link = plan.links.find(({ id }) => id === linkSelection)
   const savedLayout = useMemo(
-    () => layoutDiagram(plan.components, plan.interfaces),
-    [plan.components, plan.interfaces]
+    () => layoutDiagram(plan.components, plan.interfaces, plan.networks),
+    [plan.components, plan.interfaces, plan.networks]
   )
   const scope = useMemo(
     () =>
       scopedDiagram(
         plan,
         savedLayout,
-        focusedNetworkId,
+        networkIds,
         searchQuery.trim() ? matchIds : undefined
       ),
-    [plan, savedLayout, focusedNetworkId, searchQuery, matchIds]
+    [plan, savedLayout, networkIds, searchQuery, matchIds]
   )
   const { componentBoxes, guests, topLevel } = scope.layout
   const { bind, place, preview, saving, error } = useTopologyDrag(
@@ -187,7 +213,7 @@ export function DiagramView({
   const scrollToScope = useEffectEvent(() => {
     const box = placedComponentId
       ? components.get(placedComponentId)
-      : focusedNetworkId
+      : networkIds.length
         ? components.values().next().value
         : undefined
     canvasRef.current?.scrollTo(
@@ -197,7 +223,7 @@ export function DiagramView({
   })
   useLayoutEffect(() => {
     scrollToScope()
-  }, [focusedNetworkId, scope.focused, placedComponentId])
+  }, [networkIds, scope.focused, placedComponentId])
   useLayoutEffect(() => {
     const node = highlightedNode.current
     node?.focus({ preventScroll: true })
@@ -357,6 +383,9 @@ export function DiagramView({
                 {network?.name ?? "No network"}
               </span>
               <span className="block">{port.ipv4 ?? "Unassigned"}</span>
+              {network?.subnet && (
+                <span className="block">Mask {subnetMask(network.subnet)}</span>
+              )}
             </span>
           )
         })}
@@ -381,7 +410,7 @@ export function DiagramView({
   }
 
   function revealPlacement(id: string) {
-    updateFilter({ networkId: null, query: "" })
+    updateFilter({ networkIds: [], query: "" })
     setPlacedComponentId(id)
   }
 
@@ -426,64 +455,110 @@ export function DiagramView({
         }}
         onSelectResult={(result) => {
           setPlacedComponentId(undefined)
-          setFocusedNetworkId(result.networkId)
+          if (!result.networkId || !networkIds.includes(result.networkId))
+            updateFilter({
+              networkIds: result.networkId ? [result.networkId] : [],
+            })
           setHighlightedResult({ ...result })
           setMovingComponentId(undefined)
         }}
       >
-        {canEdit && plan.components.length > 0 && (
-          <Button
-            variant="outline"
-            className="min-h-11"
-            onClick={() => setLinkSelection(null)}
-          >
-            Add link
-          </Button>
-        )}
+        {plan.links.length > 0 && <LinkLegend />}
       </DiagramSearch>
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+        {canEdit && (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              render={<Button variant="outline" />}
+              {...diagramDragSource("component")}
+            >
+              <IconPlus aria-hidden="true" /> Add{" "}
+              <IconChevronDown aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-44">
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={onAddComponent}
+                  {...diagramDragSource("component")}
+                >
+                  <IconBox aria-hidden="true" />
+                  Add component
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!plan.components.length}
+                  onClick={() => setLinkSelection(null)}
+                >
+                  <IconLink aria-hidden="true" />
+                  Add link
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         {canEdit && (
           <Button
             variant="outline"
             aria-expanded={library}
             onClick={() => setLibrary(!library)}
           >
-            Component library
+            <IconLibrary aria-hidden="true" /> Component library
           </Button>
         )}
-        <Button
-          variant="outline"
-          aria-label="Zoom out"
-          disabled={zoom <= 0.25}
-          onClick={() => setZoom(Math.max(0.25, zoom - 0.25))}
+        <div
+          role="group"
+          aria-label="Diagram zoom"
+          className="ml-auto flex max-w-full items-center gap-1"
         >
-          −
-        </Button>
-        <Button
-          variant="ghost"
-          aria-label="Reset zoom"
-          onClick={() => setZoom(1)}
-        >
-          {Math.round(zoom * 100)}%
-        </Button>
-        <Button
-          variant="outline"
-          aria-label="Zoom in"
-          disabled={zoom >= 3}
-          onClick={() => setZoom(Math.min(3, zoom + 0.25))}
-        >
-          +
-        </Button>
-        <Button variant="outline" onClick={fitToView} disabled={!boxes.length}>
-          Fit to view
-        </Button>
-        {plan.links.length > 0 && <LinkLegend />}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Zoom out"
+            disabled={zoom <= 0.01}
+            onClick={() => setZoom(Math.max(0.01, zoom - 0.25))}
+          >
+            <IconZoomOut aria-hidden="true" />
+          </Button>
+          <div className="w-20 sm:w-32">
+            <Slider
+              thumbLabel="Diagram zoom"
+              min={1}
+              max={300}
+              step={1}
+              value={Math.max(1, Math.round(zoom * 100))}
+              onValueChange={(percent) => setZoom(percent / 100)}
+            />
+          </div>
+          <Button
+            variant="ghost"
+            title="Reset to 100%"
+            aria-label="Reset zoom"
+            onClick={() => setZoom(1)}
+          >
+            {Math.round(zoom * 100)}%
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Zoom in"
+            disabled={zoom >= 3}
+            onClick={() => setZoom(Math.min(3, zoom + 0.25))}
+          >
+            <IconZoomIn aria-hidden="true" />
+          </Button>
+          <Button
+            variant="outline"
+            onClick={fitToView}
+            disabled={!boxes.length}
+          >
+            <IconMaximize aria-hidden="true" /> Fit to view
+          </Button>
+        </div>
       </div>
       {source && canEdit && (
         <div className="flex items-center gap-3 border-b p-3">
           <p role="status">Select the component to connect to {source.name}.</p>
           <Button variant="outline" onClick={() => setSource(undefined)}>
-            Cancel link
+            <IconX aria-hidden="true" data-icon="inline-start" /> Cancel link
           </Button>
         </div>
       )}
@@ -505,7 +580,7 @@ export function DiagramView({
             className="min-h-11"
             onClick={() => setMovingComponentId(undefined)}
           >
-            Cancel move
+            <IconX aria-hidden="true" data-icon="inline-start" /> Cancel move
           </Button>
         </div>
       )}
@@ -613,7 +688,7 @@ export function DiagramView({
               <DiagramLinks
                 layerRef={linkLayer}
                 plan={plan}
-                focusedNetworkId={focusedNetworkId}
+                focusedNetworkIds={networkIds}
                 boxes={components}
                 hostEnclosures={hostGroups}
                 width={width}
@@ -700,6 +775,7 @@ export function DiagramView({
                     setMenu(undefined)
                   }}
                 >
+                  <IconPencil aria-hidden="true" data-icon="inline-start" />{" "}
                   Edit link
                 </Button>
                 <Button
@@ -710,6 +786,7 @@ export function DiagramView({
                     if (links) void applyAction({ ...plan, links })
                   }}
                 >
+                  <IconTrash aria-hidden="true" data-icon="inline-start" />{" "}
                   Remove link
                 </Button>
               </>
@@ -729,6 +806,7 @@ export function DiagramView({
                     )
                   }
                 >
+                  <IconCopy aria-hidden="true" data-icon="inline-start" />{" "}
                   Duplicate
                 </Button>
                 {plan.interfaces
@@ -743,6 +821,7 @@ export function DiagramView({
                         setMenu(undefined)
                       }}
                     >
+                      <IconLink aria-hidden="true" data-icon="inline-start" />{" "}
                       Link from {port.name}
                     </Button>
                   ))}
@@ -760,6 +839,7 @@ export function DiagramView({
                     else setMenu(undefined)
                   }}
                 >
+                  <IconTrash aria-hidden="true" data-icon="inline-start" />{" "}
                   Delete
                 </Button>
               </>

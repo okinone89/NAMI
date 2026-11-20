@@ -1,14 +1,21 @@
 import { useId, useState } from "react"
-import { IconChevronDown, IconPencil, IconPlus } from "@tabler/icons-react"
+import {
+  IconCheck,
+  IconChevronDown,
+  IconPencil,
+  IconPlus,
+} from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import { NetworkDialog } from "@/components/network-dialog"
+import { linkMediumLabels } from "@/lib/link-labels"
+import { subnetMask } from "@/lib/ipv4-subnet"
 import { networkColor } from "@/lib/network-color"
 import type { Plan, PlanNetwork } from "@/lib/plans"
 
 type Props = {
   plan: Plan
   canEdit: boolean
-  selected: string | null
+  selected: string[]
   onToggle: (id: string) => void
   savePlan: (plan: Plan) => Promise<void>
 }
@@ -24,13 +31,15 @@ export function PlanNetworks({
 
   const [expanded, setExpanded] = useState(true)
   const listId = useId()
-  const activeNetwork = plan.networks.find((network) => network.id === selected)
+  const activeNetworks = plan.networks.filter((network) =>
+    selected.includes(network.id)
+  )
 
   if (!canEdit && !plan.networks.length) return null
 
   return (
     <section aria-label="Networks" className="mb-4 border">
-      <div className="flex flex-wrap items-center gap-2 bg-muted/50 px-3 py-1">
+      <div className="flex flex-wrap items-center gap-2 bg-muted px-3 py-1">
         <h2 className="text-sm font-medium">
           {plan.networks.length ? (
             <Button
@@ -51,19 +60,23 @@ export function PlanNetworks({
             "Networks"
           )}
         </h2>
-        {!expanded && activeNetwork && (
-          <span className="flex max-w-full min-w-0 items-center gap-2 border bg-background px-2 py-1 text-xs">
+        {!expanded &&
+          activeNetworks.map((activeNetwork) => (
             <span
-              aria-hidden="true"
-              className="size-2 shrink-0 rounded-full"
-              style={{ backgroundColor: networkColor(activeNetwork.id) }}
-            />
-            <span className="wrap-anywhere">
-              <span className="sr-only">Active network filter: </span>
-              {activeNetwork.name}
+              key={activeNetwork.id}
+              className="flex max-w-full min-w-0 items-center gap-2 border bg-background px-2 py-1 text-xs"
+            >
+              <span
+                aria-hidden="true"
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: networkColor(activeNetwork.id) }}
+              />
+              <span className="wrap-anywhere">
+                <span className="sr-only">Active network filter: </span>
+                {activeNetwork.name}
+              </span>
             </span>
-          </span>
-        )}
+          ))}
         {canEdit && (
           <Button
             variant="outline"
@@ -83,22 +96,35 @@ export function PlanNetworks({
           {plan.networks.map((network) => (
             <li
               key={network.id}
-              className={`flex min-w-0 items-center border border-l-4 ${selected === network.id ? "border-primary bg-muted" : "border-border"}`}
+              className={`flex min-w-0 items-center border border-l-4 ${selected.includes(network.id) ? "border-primary bg-muted" : "border-border"}`}
               style={{ borderLeftColor: networkColor(network.id) }}
             >
               <Button
                 variant="ghost"
                 aria-label={network.name}
-                aria-pressed={selected === network.id}
+                aria-pressed={selected.includes(network.id)}
                 className="h-auto min-h-11 min-w-0 flex-1 flex-col items-start gap-0 px-3 py-1 text-left"
                 onClick={() => onToggle(network.id)}
               >
-                <span className="w-full truncate" title={network.name}>
-                  {network.name}
+                <span className="flex w-full items-center gap-1">
+                  <span className="truncate" title={network.name}>
+                    {network.name}
+                  </span>
+                  {selected.includes(network.id) && (
+                    <IconCheck aria-hidden="true" className="ml-auto" />
+                  )}
                 </span>
+                {network.medium && (
+                  <span className="text-xs text-muted-foreground">
+                    {linkMediumLabels[network.medium]}
+                  </span>
+                )}
                 {network.subnet && (
                   <span className="font-mono text-xs text-muted-foreground">
                     {network.subnet}
+                    <span className="block">
+                      Mask {subnetMask(network.subnet)}
+                    </span>
                   </span>
                 )}
               </Button>

@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase } from "./workspace-settings"
+import { editorPassphrase, expectReadOnly } from "./workspace-settings"
 
 type Topology = Pick<Plan, "networks" | "components" | "interfaces">
 
@@ -92,9 +92,7 @@ test("an anonymous visitor finds both isolated PLCs by their shared IPv4 address
 }) => {
   const planId = await createSearchPlan(request)
   await page.goto(`/?plan=${planId}`)
-  await expect(
-    page.getByRole("button", { name: "Unlock editing" })
-  ).toBeVisible()
+  await expectReadOnly(page)
 
   await page
     .getByRole("searchbox", { name: "Search plan" })

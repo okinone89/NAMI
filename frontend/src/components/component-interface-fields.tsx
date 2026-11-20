@@ -1,3 +1,4 @@
+import { IconLink, IconX } from "@tabler/icons-react"
 import { useId } from "react"
 import { PersistedIpv4Issues } from "@/components/ipv4-issues"
 import { ProtocolProfileFields } from "@/components/protocol-profile-fields"
@@ -86,7 +87,8 @@ export function ComponentInterfaceFields({
       />
       {allowLink && (
         <Button type="submit" variant="outline" data-link-port={port.id}>
-          Add link from {port.name || "interface"}
+          <IconLink aria-hidden="true" data-icon="inline-start" /> Add link from{" "}
+          {port.name || "interface"}
         </Button>
       )}
       {onDiscard && (
@@ -96,7 +98,8 @@ export function ComponentInterfaceFields({
           className="min-h-11 self-start"
           onClick={onDiscard}
         >
-          Discard new interface
+          <IconX aria-hidden="true" data-icon="inline-start" /> Discard new
+          interface
         </Button>
       )}
     </FieldSet>

@@ -6,7 +6,14 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { PlanNameDialog } from "@/components/plan-name-dialog"
-import type { DiagramPosition, Plan, PlanNetwork } from "@/lib/plans"
+import { networkCidr, subnetMask } from "@/lib/ipv4-subnet"
+import { linkMediumLabels } from "@/lib/link-labels"
+import type {
+  LinkMedium,
+  DiagramPosition,
+  Plan,
+  PlanNetwork,
+} from "@/lib/plans"
 
 type Props = {
   plan: Plan
@@ -26,11 +33,17 @@ export function NetworkDialog({
   onClose,
 }: Props) {
   const subnetId = useId()
-  const [subnet, setSubnet] = useState(network?.subnet ?? "")
+  const [address, setAddress] = useState(network?.subnet?.split("/")[0] ?? "")
+  const [mask, setMask] = useState(subnetMask(network?.subnet))
 
   async function save(name: string, fields: FormData) {
-    const savedSubnet = subnet.trim() || null
-    const addressing = { subnet: savedSubnet, ...readAllocationFields(fields) }
+    const savedSubnet = networkCidr(address.trim(), mask.trim())
+    const medium = fields.get("medium") as LinkMedium | ""
+    const addressing = {
+      medium: medium || null,
+      subnet: savedSubnet,
+      ...readAllocationFields(fields),
+    }
     if (network) {
       const networks = plan.networks.map((item) =>
         item.id === network.id ? { ...item, name, ...addressing } : item
@@ -59,19 +72,53 @@ export function NetworkDialog({
       onSave={save}
     >
       <Field>
-        <FieldLabel htmlFor={subnetId}>IPv4 subnet (optional)</FieldLabel>
+        <FieldLabel htmlFor={subnetId}>
+          IPv4 network address (optional)
+        </FieldLabel>
         <Input
           id={subnetId}
-          name="subnet"
-          value={subnet}
-          onChange={(event) => setSubnet(event.target.value)}
-          placeholder="192.168.1.0/24"
+          name="networkAddress"
+          value={address}
+          onChange={(event) => setAddress(event.target.value)}
+          placeholder="192.168.1.0"
           spellCheck={false}
           autoComplete="off"
           className="min-h-11"
         />
       </Field>
-      <NetworkAllocationFields network={network} disabled={!subnet.trim()} />
+      <Field>
+        <FieldLabel htmlFor={subnetId + "-mask"}>Subnet mask</FieldLabel>
+        <Input
+          id={subnetId + "-mask"}
+          name="subnetMask"
+          value={mask}
+          onChange={(event) => setMask(event.target.value)}
+          placeholder="255.255.255.0"
+          spellCheck={false}
+          autoComplete="off"
+          className="min-h-11"
+        />
+      </Field>
+      <Field>
+        <FieldLabel htmlFor={subnetId + "-medium"}>Network type</FieldLabel>
+        <select
+          name="medium"
+          id={subnetId + "-medium"}
+          defaultValue={network?.medium ?? ""}
+          className="min-h-11 border border-input bg-background px-2"
+        >
+          <option value="">Unspecified</option>
+          {Object.entries(linkMediumLabels).map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <NetworkAllocationFields
+        network={network}
+        disabled={!address.trim() || !mask.trim()}
+      />
     </PlanNameDialog>
   )
 }

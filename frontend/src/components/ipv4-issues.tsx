@@ -1,3 +1,4 @@
+import { IconFlag } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import {
   addressConflictApprovals,
@@ -80,7 +81,8 @@ export function AddressSaveFeedback({
           disabled={disabled}
           className="mt-2 min-h-11"
         >
-          Keep conflicts flagged
+          <IconFlag aria-hidden="true" data-icon="inline-start" /> Keep
+          conflicts flagged
         </Button>
       )}
     </div>

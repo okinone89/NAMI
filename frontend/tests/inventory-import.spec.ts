@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase } from "./workspace-settings"
+import { editorPassphrase, workspaceAction } from "./workspace-settings"
 
 async function openInventory(page: Page) {
   const session = await page.request.post("/api/editor-session", {
@@ -76,9 +76,9 @@ test("an exported inventory CSV previews its unchanged interfaces", async ({
 }) => {
   await openInventory(page)
   const download = page.waitForEvent("download")
-  await page.getByRole("link", { name: "Export inventory CSV" }).click()
+  await workspaceAction(page, "Export inventory CSV")
   const path = await (await download).path()
-  await page.getByRole("button", { name: "Import inventory" }).click()
+  await workspaceAction(page, "Import inventory")
   const dialog = page.getByRole("dialog", { name: "Import inventory" })
   await dialog.getByLabel("CSV file").setInputFiles(path)
   await dialog.getByRole("button", { name: "Preview import" }).click()
@@ -95,7 +95,7 @@ test("flags conflicting network columns until the editor resolves the mapping", 
   page,
 }) => {
   const planId = await openInventory(page)
-  await page.getByRole("button", { name: "Import inventory" }).click()
+  await workspaceAction(page, "Import inventory")
   const dialog = page.getByRole("dialog", { name: "Import inventory" })
   await dialog
     .getByLabel("Spreadsheet rows")
@@ -122,13 +122,31 @@ test("flags conflicting network columns until the editor resolves the mapping", 
   expect(saved.interfaces.find(({ id }) => id === "port-b")?.networkId).toBe(
     "test"
   )
+  const address = page.getByRole("textbox", {
+    name: "IPv4 address for Capper PLC / LAN B",
+  })
+  await address.fill("192.168.1.21")
+  await page.getByRole("button", { name: "Save interface" }).click()
+  const notice = page.getByText(/Undo unavailable/)
+  await expect(notice).toBeVisible()
+  await page.getByRole("button", { name: "Diagram", exact: true }).click()
+  await page.getByRole("button", { name: "Table", exact: true }).click()
+  await expect(notice).toBeVisible()
+  await page.reload()
+  const undoStatus = page.waitForResponse((response) =>
+    response.url().endsWith("/inventory/undo")
+  )
+  await page.getByRole("button", { name: "Table", exact: true }).click()
+  await undoStatus
+  await expect(address).toHaveValue("192.168.1.21")
+  await expect(notice).toHaveCount(0)
 })
 
 test("pasted rows can be mapped, reviewed, corrected, cleared, or skipped", async ({
   page,
 }) => {
   const planId = await openInventory(page)
-  await page.getByRole("button", { name: "Import inventory" }).click()
+  await workspaceAction(page, "Import inventory")
   const dialog = page.getByRole("dialog", { name: "Import inventory" })
   await dialog
     .getByLabel("Spreadsheet rows")
@@ -201,7 +219,7 @@ test("reconfirms a stale inventory import and undoes it after reopening", async 
 }) => {
   const planId = await openInventory(page)
   const path = `/api/plans/${planId}`
-  await page.getByRole("button", { name: "Import inventory" }).click()
+  await workspaceAction(page, "Import inventory")
   const dialog = page.getByRole("dialog", { name: "Import inventory" })
   await dialog
     .getByLabel("Spreadsheet rows")
@@ -277,7 +295,7 @@ test("reviews table selections before bulk editing and reconfirms a stale change
   const planId = await openInventory(page)
   const interfaces = page.getByRole("table", { name: "Interfaces" })
   await interfaces.getByRole("checkbox", { name: /Select Filler/ }).check()
-  await page.getByLabel("Filter interfaces").fill("capper")
+  await page.getByLabel("Search component").fill("capper")
   await interfaces
     .getByRole("checkbox", { name: "Select Capper PLC / LAN B" })
     .check()

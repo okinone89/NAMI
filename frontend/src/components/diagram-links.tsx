@@ -13,6 +13,7 @@ import type { LinkMedium, Plan, PlanLink } from "@/lib/plans"
 
 const strokePatterns: Record<LinkMedium, string | undefined> = {
   wired: undefined,
+  fiberOptic: "12 3 2 3",
   wireless: "9 6",
   virtual: "1 6",
 }
@@ -21,7 +22,7 @@ type Props = {
   forExport?: boolean
   layerRef: Ref<SVGSVGElement>
   plan: Plan
-  focusedNetworkId: string | null
+  focusedNetworkIds: string[]
   boxes: ReadonlyMap<string, DiagramBox>
   hostEnclosures: ReadonlyMap<string, DiagramBox>
   width: number
@@ -36,7 +37,7 @@ export function DiagramLinks({
   plan,
   boxes,
   hostEnclosures,
-  focusedNetworkId,
+  focusedNetworkIds,
   width,
   height,
   onSelectLink,
@@ -62,9 +63,9 @@ export function DiagramLinks({
       ),
     ]
     if (
-      focusedNetworkId &&
+      focusedNetworkIds.length &&
       networkIds.length &&
-      !networkIds.includes(focusedNetworkId)
+      !networkIds.some((id) => focusedNetworkIds.includes(id))
     )
       return []
     return [{ link, networkIds, source, target }]

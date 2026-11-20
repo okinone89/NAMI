@@ -1,13 +1,18 @@
+import {
+  IconClipboard,
+  IconEye,
+  IconFlag,
+  IconPencil,
+  IconRefresh,
+} from "@tabler/icons-react"
 import { useId, useRef, useState, type ReactNode } from "react"
 import { Ipv4IssueList } from "@/components/ipv4-issues"
-import { Button, buttonVariants } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import {
-  Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import {
   Field,
@@ -23,7 +28,6 @@ import {
 import {
   defaultInventoryMapping,
   inventoryFields,
-  inventoryPath,
   mapInventoryRows,
   parseInventory,
   previewInventory,
@@ -48,53 +52,6 @@ export type InventoryReviewActions = InventoryReview & {
   replacePreview: (preview: InventoryPreview) => void
   submitting: boolean
   setSubmitting: (submitting: boolean) => void
-}
-
-export function InventoryTools({
-  planId,
-  canEdit,
-  renderActions,
-  withEditorAccess,
-  children,
-}: {
-  planId: string
-  canEdit: boolean
-  renderActions?: (review: InventoryReviewActions) => ReactNode
-  withEditorAccess: WithEditorAccess
-  children?: ReactNode
-}) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
-      <a
-        href={`${inventoryPath(planId)}.csv`}
-        className={buttonVariants({
-          variant: "outline",
-          className: "min-h-11",
-        })}
-      >
-        Export inventory CSV
-      </a>
-      {canEdit && (
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger
-            render={<Button variant="outline" className="min-h-11" />}
-          >
-            Import inventory
-          </DialogTrigger>
-          {open && (
-            <InventoryDialog
-              planId={planId}
-              close={() => setOpen(false)}
-              renderActions={renderActions}
-              withEditorAccess={withEditorAccess}
-            />
-          )}
-        </Dialog>
-      )}
-      {children}
-    </div>
-  )
 }
 
 type BulkSelection = {
@@ -246,7 +203,8 @@ export function InventoryDialog({
               disabled={!pasted.trim()}
               onClick={() => load(pasted)}
             >
-              Load pasted rows
+              <IconClipboard aria-hidden="true" data-icon="inline-start" /> Load
+              pasted rows
             </Button>
             {sheet && (
               <div className="flex min-w-0 flex-col gap-3 border-t pt-4">
@@ -298,6 +256,7 @@ export function InventoryDialog({
                     void preview({ rows: mapInventoryRows(sheet, mapping) })
                   }
                 >
+                  <IconEye aria-hidden="true" data-icon="inline-start" />{" "}
                   {busy ? "Loading…" : "Preview import"}
                 </Button>
               </div>
@@ -356,6 +315,7 @@ export function InventoryDialog({
                   setError("")
                 }}
               >
+                <IconPencil aria-hidden="true" data-icon="inline-start" />{" "}
                 {bulk ? "Change bulk values" : "Edit source or mapping"}
               </Button>
               {dirty && (
@@ -372,6 +332,7 @@ export function InventoryDialog({
                     })
                   }
                 >
+                  <IconRefresh aria-hidden="true" data-icon="inline-start" />{" "}
                   {busy ? "Updating…" : "Update preview"}
                 </Button>
               )}
@@ -468,7 +429,7 @@ function BulkInventoryFields({
         onClick={preview}
         disabled={!network && !ipv4.trim() && !clearIpv4}
       >
-        Preview changes
+        <IconEye aria-hidden="true" data-icon="inline-start" /> Preview changes
       </Button>
     </FieldGroup>
   )
@@ -577,7 +538,8 @@ function PreviewRow({
                   disabled={!canKeep || draft.skip}
                   onClick={() => onKeep(approval)}
                 >
-                  Keep conflict flagged
+                  <IconFlag aria-hidden="true" data-icon="inline-start" /> Keep
+                  conflict flagged
                 </Button>
               ) : (
                 <p>Conflict kept and flagged</p>
@@ -594,6 +556,7 @@ function PreviewRow({
             aria-expanded={editing}
             onClick={() => setEditing(!editing)}
           >
+            <IconPencil aria-hidden="true" data-icon="inline-start" />{" "}
             {editing ? "Hide row fields" : "Correct row"}
           </Button>
         )}

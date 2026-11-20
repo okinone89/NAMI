@@ -18,6 +18,7 @@ export type PlanNetwork = {
   name: string
   subnet: string | null
   position: DiagramPosition | null
+  medium?: LinkMedium | null
   allocationPool?: Ipv4Range | null
   excludedIpv4Ranges?: Ipv4Range[] | null
 }
@@ -41,7 +42,7 @@ export type PlanInterface = {
 }
 
 export type LinkEndpoint = { componentId: string; interfaceId: string | null }
-export type LinkMedium = "wired" | "wireless" | "virtual"
+export type LinkMedium = "wired" | "wireless" | "virtual" | "fiberOptic"
 export type PlanLink = {
   lineType?: "elbow"
   id: string

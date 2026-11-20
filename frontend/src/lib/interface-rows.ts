@@ -4,13 +4,14 @@ import { profileSummary } from "./protocol-profiles"
 
 export const columns = [
   { key: "component", label: "Component" },
+  { key: "type", label: "Component type" },
   { key: "interface", label: "Interface" },
   { key: "network", label: "Network" },
   { key: "ipv4", label: "IPv4 address" },
   { key: "protocol", label: "Protocols" },
 ] as const
 
-export function interfaceRows(plan: Plan, { query, networkId }: PlanFilter) {
+export function interfaceRows(plan: Plan, { query, networkIds }: PlanFilter) {
   const components = new Map(
     plan.components.map((component) => [component.id, component])
   )
@@ -22,7 +23,7 @@ export function interfaceRows(plan: Plan, { query, networkId }: PlanFilter) {
   )
   const withoutInterfaces = plan.components.filter(
     (component) =>
-      !networkId &&
+      !networkIds.length &&
       !withInterfaces.has(component.id) &&
       [component.name, component.type].some((v) =>
         v.toLowerCase().includes(query.trim().toLowerCase())
@@ -30,7 +31,11 @@ export function interfaceRows(plan: Plan, { query, networkId }: PlanFilter) {
   )
   const filter = query.trim().toLocaleLowerCase()
   const rows = plan.interfaces
-    .filter((port) => !networkId || port.networkId === networkId)
+    .filter(
+      (port) =>
+        !networkIds.length ||
+        (port.networkId !== null && networkIds.includes(port.networkId))
+    )
     .map((port) => {
       const component = components.get(port.componentId)
       return {

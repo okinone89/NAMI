@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase } from "./workspace-settings"
+import { editorPassphrase, expectReadOnly } from "./workspace-settings"
 
 async function openAllocationPlan(page: Page, subnet: string | null = null) {
   const session = await page.request.post("/api/editor-session", {
@@ -75,7 +75,8 @@ test("a saved pool skips assigned, reserved, and excluded IPv4 addresses", async
 
   await page.getByRole("button", { name: "Edit network Cell LAN" }).click()
   const network = page.getByRole("dialog", { name: "Edit network" })
-  await network.getByLabel("IPv4 subnet").fill("192.168.1.0/24")
+  await network.getByLabel("IPv4 network address").fill("192.168.1.0")
+  await network.getByLabel("Subnet mask").fill("255.255.255.192")
   await network.getByText("Allocation pool and exclusions").click()
   await network.getByLabel("Pool start").fill("192.168.1.20", { timeout: 5000 })
   await network.getByLabel("Pool end").fill("192.168.1.40")
@@ -245,9 +246,7 @@ for (const step of ["preview", "commit"]) {
     await (step === "preview" ? preview : confirm).click()
     await expect(dialog).toBeHidden()
     await expect(suggest).toHaveCount(0)
-    await expect(
-      page.getByRole("button", { name: "Unlock editing" })
-    ).toBeVisible()
+    await expectReadOnly(page)
     await expect(
       page.getByRole("heading", { name: "Allocation exercise" })
     ).toBeVisible()

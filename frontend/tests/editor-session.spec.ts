@@ -1,3 +1,4 @@
+import { workspaceAction, expectReadOnly } from "./workspace-settings"
 import { expect, test } from "@playwright/test"
 
 test("unlock editing and sign out without leaving the current plan view", async ({
@@ -30,7 +31,7 @@ test("unlock editing and sign out without leaving the current plan view", async 
 
   await page.goto("/")
   await page.getByRole("button", { name: "Table" }).click()
-  await page.getByRole("button", { name: "Unlock editing" }).click()
+  await workspaceAction(page, "Unlock editing")
   const dialog = page.getByRole("dialog", { name: "Unlock editing" })
   await expect(dialog).toBeVisible()
   const bounds = await dialog.boundingBox()
@@ -52,10 +53,8 @@ test("unlock editing and sign out without leaving the current plan view", async 
     page.getByRole("heading", { name: "Interface table" })
   ).toBeVisible()
 
-  await page.getByRole("button", { name: "Sign out" }).click()
-  await expect(
-    page.getByRole("button", { name: "Unlock editing" })
-  ).toBeVisible()
+  await workspaceAction(page, "Sign out")
+  await expectReadOnly(page)
   await expect(page.getByRole("button", { name: "Sign out" })).toBeHidden()
   await expect(
     page.getByRole("heading", { name: "Interface table" })
@@ -85,9 +84,7 @@ test("idle expiry returns the current plan to read-only browsing", async ({
 
   expired = true
   await page.clock.fastForward(idleTime)
-  await expect(
-    page.getByRole("button", { name: "Unlock editing" })
-  ).toBeVisible()
+  await expectReadOnly(page)
   await expect(
     page.getByRole("heading", { name: "Interface table" })
   ).toBeVisible()

@@ -1,3 +1,4 @@
+import { IconLink, IconX } from "@tabler/icons-react"
 import { useState } from "react"
 import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
@@ -90,7 +91,9 @@ export function InterfaceLinkDialog({
                 interfaceId: source.id,
               },
               target: { componentId, interfaceId: target.id },
-              medium: "wired",
+              medium:
+                plan.networks.find((n) => n.id === networkId)?.medium ??
+                "wired",
               protocol: null,
             },
           ],
@@ -221,9 +224,10 @@ export function InterfaceLinkDialog({
             />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
+                <IconX aria-hidden="true" data-icon="inline-start" /> Cancel
               </Button>
               <Button type="submit" disabled={!name || !target}>
+                <IconLink aria-hidden="true" data-icon="inline-start" />{" "}
                 {changes.length ? "Accept change and link" : "Create link"}
               </Button>
             </div>

@@ -1,3 +1,4 @@
+import { workspaceAction } from "./workspace-settings"
 import { expect, test } from "@playwright/test"
 import { readFile } from "node:fs/promises"
 import { unzipSync } from "fflate"
@@ -58,7 +59,7 @@ test("a reader can reopen filtered views and download combined and per-network r
   ).toHaveAttribute("aria-pressed", "true")
   await page.getByRole("button", { name: "Table", exact: true }).click()
   await expect(page.getByRole("searchbox")).toHaveValue("Ethernet")
-  await page.getByRole("button", { name: "Export PDF" }).click()
+  await workspaceAction(page, "Export PDF")
   await expect(page.getByLabel("Include")).toHaveValue("Table")
   await page.getByLabel("Include").selectOption("Both")
   const downloading = page.waitForEvent("download")
@@ -68,7 +69,7 @@ test("a reader can reopen filtered views and download combined and per-network r
   const output = testInfo.outputPath("combined.pdf")
   await pdf.saveAs(output)
   expect((await readFile(output)).toString("latin1")).toMatch(/\/Count 2\b/)
-  await page.getByRole("button", { name: "Export PDF" }).click()
+  await workspaceAction(page, "Export PDF")
   await page.getByLabel("Export scope").selectOption("separate")
   const zipping = page.waitForEvent("download")
   await page.getByRole("button", { name: "Download ZIP" }).click()
@@ -79,7 +80,7 @@ test("a reader can reopen filtered views and download combined and per-network r
   for (const file of Object.values(files))
     expect(Buffer.from(file).toString("ascii", 0, 5)).toBe("%PDF-")
   await page.reload()
-  await page.getByRole("button", { name: "Export PDF" }).click()
+  await workspaceAction(page, "Export PDF")
   await expect(page.getByLabel("Export scope")).toHaveValue("separate")
 })
 
@@ -109,17 +110,17 @@ test("selected networks start on fresh PDF pages and are remembered per plan", a
     await page.route("**/api/plans/" + plan.id, (r) =>
       r.fulfill({ json: plan })
     )
-  const open = page.getByRole("button", { name: "Export PDF" })
+  const open = () => workspaceAction(page, "Export PDF")
   const scope = page.getByLabel("Export scope")
   const download = page.getByRole("button", { name: "Download PDF" })
   await page.goto("/?plan=East")
-  await open.click()
+  await open()
   await scope.selectOption("selected")
   await expect(download).toBeDisabled()
   await page.getByRole("checkbox", { name: "Lab", exact: true }).check()
   await page.getByRole("checkbox", { name: "Office", exact: true }).check()
   await page.reload()
-  await open.click()
+  await open()
   await expect(scope).toHaveValue("selected")
   await expect(
     page.getByRole("checkbox", { name: "Lab", exact: true })
@@ -138,8 +139,9 @@ test("selected networks start on fresh PDF pages and are remembered per plan", a
   const output = testInfo.outputPath("selected.pdf")
   await pdf.saveAs(output)
   expect((await readFile(output)).toString("latin1")).toMatch(/\/Count 4\b/)
-  await page.getByLabel("Open plan").selectOption("West")
-  await open.click()
+  await workspaceAction(page, "Open plan")
+  await page.getByRole("menuitemradio", { name: "West" }).click()
+  await open()
   await scope.selectOption("selected")
   await expect(download).toBeDisabled()
 })

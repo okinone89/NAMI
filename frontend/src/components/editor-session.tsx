@@ -1,11 +1,26 @@
-import { useState, type FormEvent } from "react"
+import {
+  IconChevronDown,
+  IconLogin,
+  IconLogout,
+  IconSettings,
+  IconLockOpen,
+  IconX,
+} from "@tabler/icons-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  DropdownMenuItem,
+  DropdownMenuGroup,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
+import { useState, type ReactNode, type FormEvent } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -16,9 +31,11 @@ import {
   type useEditorSession,
 } from "@/hooks/use-editor-session"
 
-export function EditorSessionControls({
+export function WorkspaceMenu({
   session,
+  children,
 }: {
+  children: ReactNode
   session: ReturnType<typeof useEditorSession>
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -69,88 +86,104 @@ export function EditorSessionControls({
     }
   }
 
-  return session.canEdit ? (
-    <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs">
-      <span>Editing unlocked</span>
-      <Button
-        variant="outline"
-        className="min-h-11"
-        disabled={busy}
-        onClick={signOut}
-      >
-        Sign out
-      </Button>
-      {error && (
-        <p role="alert" className="basis-full text-right text-destructive">
+  return (
+    <>
+      <div className="ml-auto flex items-center gap-3">
+        {session.canEdit && (
+          <span className="text-xs text-muted-foreground">
+            Editing unlocked
+          </span>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button variant="outline" className="min-h-11" />}
+          >
+            <IconSettings aria-hidden="true" /> Workspace{" "}
+            <IconChevronDown aria-hidden="true" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-60">
+            {children}
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              {session.canEdit ? (
+                <DropdownMenuItem disabled={busy} onClick={signOut}>
+                  <IconLogout aria-hidden="true" /> Sign out
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setError("")
+                    setDialogOpen(true)
+                  }}
+                >
+                  <IconLogin aria-hidden="true" /> Unlock editing
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {session.canEdit && error && (
+        <p role="alert" className="text-destructive">
           {error}
         </p>
       )}
-    </div>
-  ) : (
-    <Dialog
-      open={dialogOpen}
-      onOpenChange={(open, details) => {
-        if (busy) {
-          details.cancel()
-          return
-        }
-        setError("")
-        setDialogOpen(open)
-      }}
-    >
-      <DialogTrigger
-        render={<Button variant="outline" className="ml-auto min-h-11" />}
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open, details) => {
+          if (busy) return details.cancel()
+          setDialogOpen(open)
+        }}
       >
-        Unlock editing
-      </DialogTrigger>
-      <DialogContent showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>Unlock editing</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={unlock} className="flex flex-col gap-4">
-          <FieldGroup>
-            <Field data-invalid={!!error}>
-              <FieldLabel htmlFor="editor-passphrase">
-                Shared editor passphrase
-              </FieldLabel>
-              <Input
-                id="editor-passphrase"
-                name="passphrase"
-                type="password"
-                autoComplete="current-password"
-                required
-                disabled={busy}
-                aria-invalid={!!error}
-                aria-describedby={error ? "editor-session-error" : undefined}
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Unlock editing</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={unlock} className="flex flex-col gap-4">
+            <FieldGroup>
+              <Field data-invalid={!!error}>
+                <FieldLabel htmlFor="editor-passphrase">
+                  Shared editor passphrase
+                </FieldLabel>
+                <Input
+                  id="editor-passphrase"
+                  name="passphrase"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  disabled={busy}
+                  aria-invalid={!!error}
+                  aria-describedby={error ? "editor-session-error" : undefined}
+                  className="min-h-11"
+                />
+                {error && (
+                  <p
+                    id="editor-session-error"
+                    role="alert"
+                    className="text-destructive"
+                  >
+                    {error}
+                  </p>
+                )}
+              </Field>
+            </FieldGroup>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
                 className="min-h-11"
-              />
-              {error && (
-                <p
-                  id="editor-session-error"
-                  role="alert"
-                  className="text-destructive"
-                >
-                  {error}
-                </p>
-              )}
-            </Field>
-          </FieldGroup>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-11"
-              disabled={busy}
-              onClick={() => setDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" className="min-h-11" disabled={busy}>
-              Unlock editing
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+                disabled={busy}
+                onClick={() => setDialogOpen(false)}
+              >
+                <IconX aria-hidden="true" /> Cancel
+              </Button>
+              <Button type="submit" className="min-h-11" disabled={busy}>
+                <IconLockOpen aria-hidden="true" /> Unlock editing
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

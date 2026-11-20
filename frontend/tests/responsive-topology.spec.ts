@@ -273,7 +273,7 @@ for (const width of [360, 390, 1024]) {
       const table = page.getByRole("table", { name: "Interfaces", exact: true })
       const rows = table.getByRole("rowgroup").last().getByRole("row")
       await expect(rows).toHaveCount(250)
-      const filter = page.getByRole("searchbox", { name: "Filter interfaces" })
+      const filter = page.getByRole("searchbox", { name: "Search component" })
       await filter.fill("Filler A HMI")
       await expect(rows).toHaveCount(2)
       const sort = table.getByRole("button", {

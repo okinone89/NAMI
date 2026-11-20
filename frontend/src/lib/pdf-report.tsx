@@ -11,6 +11,7 @@ import { layoutDiagram } from "./diagram-layout"
 import { scopedDiagram } from "./diagram-scope"
 import { searchDiagram } from "./diagram-search"
 import { columns, interfaceRows } from "./interface-rows"
+import { subnetMask } from "./ipv4-subnet"
 import { networkColor } from "./network-color"
 import type { Plan } from "./plans"
 
@@ -24,19 +25,21 @@ async function addDiagram(
   top: number
 ) {
   const matches = searchDiagram(plan, filter.query).filter(
-    (r) => !filter.networkId || r.networkId === filter.networkId
+    (r) =>
+      !filter.networkIds.length ||
+      (r.networkId !== null && filter.networkIds.includes(r.networkId))
   )
   const { layout } = scopedDiagram(
     plan,
-    layoutDiagram(plan.components, plan.interfaces),
-    filter.networkId,
+    layoutDiagram(plan.components, plan.interfaces, plan.networks),
+    filter.networkIds,
     filter.query.trim() ? new Set(matches.map((r) => r.componentId)) : undefined
   )
   if (!layout.componentBoxes.size) {
     doc.text("No matching components", margin, top + 12)
     return
   }
-  const networks = new Map(plan.networks.map((n) => [n.id, n.name]))
+  const networks = new Map(plan.networks.map((n) => [n.id, n]))
   const byId = new Map(plan.components.map((c) => [c.id, c]))
   const frame = document.createElement("div")
   frame.style.cssText =
@@ -65,7 +68,7 @@ async function addDiagram(
             <DiagramLinks
               forExport
               plan={plan}
-              focusedNetworkId={filter.networkId}
+              focusedNetworkIds={filter.networkIds}
               layerRef={null}
               boxes={layout.componentBoxes}
               hostEnclosures={layout.enclosures}
@@ -78,8 +81,11 @@ async function addDiagram(
               const ports = plan.interfaces.filter(
                 (p) =>
                   p.componentId === id &&
-                  (!filter.networkId || p.networkId === filter.networkId)
+                  (!filter.networkIds.length ||
+                    (p.networkId !== null &&
+                      filter.networkIds.includes(p.networkId)))
               )
+              let portY = 54
               const appearance = component.appearance
               return (
                 <g key={id} transform={`translate(${box.x} ${box.y})`}>
@@ -111,27 +117,38 @@ async function addDiagram(
                       12
                     )}
                   </text>
-                  {ports.map((p, i) => (
-                    <g key={p.id} transform={`translate(8 ${54 + i * 28})`}>
-                      <rect
-                        width={3}
-                        height={24}
-                        fill={
-                          p.networkId ? networkColor(p.networkId) : "#94a3b8"
-                        }
-                      />
-                      <text x={8} y={10} fontSize={11}>
-                        {fit(
-                          networks.get(p.networkId ?? "") ?? "No network",
-                          box.width - 24,
-                          11
+                  {ports.map((p) => {
+                    const network = networks.get(p.networkId ?? "")
+                    const mask = subnetMask(network?.subnet)
+                    const y = portY
+                    portY += mask ? 40 : 28
+                    return (
+                      <g key={p.id} transform={`translate(8 ${y})`}>
+                        <rect
+                          width={3}
+                          height={mask ? 36 : 24}
+                          fill={
+                            p.networkId ? networkColor(p.networkId) : "#94a3b8"
+                          }
+                        />
+                        <text x={8} y={10} fontSize={11}>
+                          {fit(
+                            network?.name ?? "No network",
+                            box.width - 24,
+                            11
+                          )}
+                        </text>
+                        <text x={8} y={23} fontSize={11}>
+                          {p.ipv4 ?? "Unassigned"}
+                        </text>
+                        {mask && (
+                          <text x={8} y={35} fontSize={11}>
+                            Mask {mask}
+                          </text>
                         )}
-                      </text>
-                      <text x={8} y={23} fontSize={11}>
-                        {p.ipv4 ?? "Unassigned"}
-                      </text>
-                    </g>
-                  ))}
+                      </g>
+                    )
+                  })}
                 </g>
               )
             })}
@@ -197,7 +214,10 @@ async function addSection(
   filter: PlanFilter
 ) {
   const scope =
-    plan.networks.find((n) => n.id === filter.networkId)?.name ?? "All networks"
+    plan.networks
+      .filter((n) => filter.networkIds.includes(n.id))
+      .map((n) => n.name)
+      .join(", ") || "All networks"
   function heading(section: string) {
     doc.setFontSize(17)
     const title = doc.splitTextToSize(
@@ -224,7 +244,7 @@ async function addSection(
     const { rows, withoutInterfaces } = interfaceRows(plan, filter)
     const body = rows.map((row) => columns.map((c) => row[c.key] || "—"))
     for (const c of withoutInterfaces)
-      body.push([c.name, "No interfaces", "—", "—", "—"])
+      body.push([c.name, c.type, "No interfaces", "—", "—", "—"])
     if (body.length)
       autoTable(doc, {
         startY: top,
@@ -264,7 +284,7 @@ export async function exportReport(
       files[i + 1 + "-" + fileName(network.name) + ".pdf"] = await report(
         plan,
         view,
-        [{ networkId: network.id, query: "" }]
+        [{ networkIds: [network.id], query: "" }]
       )
     }
     blob = new Blob([new Uint8Array(zipSync(files, { level: 0 }))], {
@@ -274,7 +294,7 @@ export async function exportReport(
   } else if (scope === "selected") {
     const filters = plan.networks
       .filter((n) => selectedIds.includes(n.id))
-      .map((n) => ({ networkId: n.id, query: "" }))
+      .map((n) => ({ networkIds: [n.id], query: "" }))
     if (!filters.length) throw new Error("Choose at least one network.")
     blob = new Blob([await report(plan, view, filters)], {
       type: "application/pdf",
@@ -286,9 +306,11 @@ export async function exportReport(
         ? filter
         : {
             query: "",
-            networkId: scope.startsWith("network:") ? scope.slice(8) : null,
+            networkIds: scope.startsWith("network:") ? [scope.slice(8)] : [],
           }
-    const network = plan.networks.find((n) => n.id === applied.networkId)
+    const network = plan.networks.find(
+      (n) => applied.networkIds.length === 1 && n.id === applied.networkIds[0]
+    )
     if (network) name += "-" + fileName(network.name)
     blob = new Blob([await report(plan, view, [applied])], {
       type: "application/pdf",

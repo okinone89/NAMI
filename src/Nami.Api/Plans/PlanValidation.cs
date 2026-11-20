@@ -13,7 +13,11 @@ internal static class PlanValidation
         IndexById(plan.Links, link => link.Id, "link");
 
         foreach (var network in plan.Networks)
+        {
             ArgumentException.ThrowIfNullOrWhiteSpace(network.Name);
+            if (network.Medium is { } medium && !Enum.IsDefined(medium))
+                throw new ArgumentException($"Network '{network.Id}' must use a known medium.");
+        }
 
         foreach (var component in plan.Components)
         {

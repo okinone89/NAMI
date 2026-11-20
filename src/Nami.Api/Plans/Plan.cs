@@ -22,7 +22,9 @@ public sealed record PlanNetwork(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     Ipv4Range? AllocationPool = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<Ipv4Range>? ExcludedIpv4Ranges = null);
+    IReadOnlyList<Ipv4Range>? ExcludedIpv4Ranges = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LinkMedium? Medium = null);
 
 public sealed record Component(
     string Id,
@@ -61,5 +63,6 @@ public enum LinkMedium
 {
     Wired,
     Wireless,
-    Virtual
+    Virtual,
+    FiberOptic
 }

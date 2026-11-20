@@ -1,3 +1,4 @@
+import { IconDeviceFloppy, IconTrash, IconX } from "@tabler/icons-react"
 import { useState, type FormEvent } from "react"
 import { ProtocolProfileDetails } from "@/components/protocol-profile-details"
 import { Button } from "@/components/ui/button"
@@ -172,6 +173,7 @@ export function LinkInspector({
                   onClick={removeLink}
                   className="mr-auto min-h-11"
                 >
+                  <IconTrash aria-hidden="true" data-icon="inline-start" />{" "}
                   Remove link
                 </Button>
               )}
@@ -182,9 +184,10 @@ export function LinkInspector({
                 onClick={onClose}
                 className="min-h-11"
               >
-                Cancel
+                <IconX aria-hidden="true" data-icon="inline-start" /> Cancel
               </Button>
               <Button type="submit" disabled={busy} className="min-h-11">
+                <IconDeviceFloppy aria-hidden="true" data-icon="inline-start" />{" "}
                 Save link
               </Button>
             </div>
@@ -215,7 +218,7 @@ export function LinkInspector({
                 onClick={onClose}
                 className="min-h-11 justify-self-end"
               >
-                Close
+                <IconX aria-hidden="true" data-icon="inline-start" /> Close
               </Button>
             </>
           )

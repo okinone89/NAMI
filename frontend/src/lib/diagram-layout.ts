@@ -1,4 +1,9 @@
-import type { Component, DiagramPosition, PlanInterface } from "@/lib/plans"
+import type {
+  Component,
+  DiagramPosition,
+  PlanInterface,
+  PlanNetwork,
+} from "@/lib/plans"
 
 export type DiagramBox = DiagramPosition & { width: number; height: number }
 
@@ -10,7 +15,8 @@ const guestRow = 112
 
 export function layoutDiagram(
   components: Component[],
-  interfaces: PlanInterface[]
+  interfaces: PlanInterface[],
+  networks: PlanNetwork[]
 ) {
   const guests = new Map<string, Component[]>()
   for (const component of components) {
@@ -21,13 +27,19 @@ export function layoutDiagram(
   }
 
   const componentBoxes = new Map<string, DiagramBox>()
-  const portCounts = new Map<string, number>()
-  for (const port of interfaces)
-    portCounts.set(
+  const maskedNetworks = new Set(
+    networks.filter((n) => n.subnet).map((n) => n.id)
+  )
+  const portHeights = new Map<string, number>()
+  for (const port of interfaces) {
+    const height =
+      port.networkId && maskedNetworks.has(port.networkId) ? 40 : 28
+    portHeights.set(
       port.componentId,
-      (portCounts.get(port.componentId) ?? 0) + 1
+      (portHeights.get(port.componentId) ?? 0) + height
     )
-  const heightOf = (id: string) => baseHeight + 28 * (portCounts.get(id) ?? 0)
+  }
+  const heightOf = (id: string) => baseHeight + (portHeights.get(id) ?? 0)
   let left = 28
   let top = 48
   let rowHeight = 0

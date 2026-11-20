@@ -1,3 +1,4 @@
+import { IconDownload } from "@tabler/icons-react"
 import { useState } from "react"
 import { Button } from "./ui/button"
 import {
@@ -14,12 +15,13 @@ export function PdfExport({
   plan,
   view,
   filter,
+  onClose,
 }: {
   plan: Plan
   view: "Diagram" | "Table"
+  onClose: () => void
   filter: PlanFilter
 }) {
-  const [open, setOpen] = useState(false)
   const [content, setContent] = useState<ReportView>(view)
   const storageKey = "nami:pdf-scope:v1:" + plan.id
   const [selectedScope, setScope] = useState(() => {
@@ -77,123 +79,114 @@ export function PdfExport({
     try {
       const { exportReport } = await import("@/lib/pdf-report")
       await exportReport(plan, content, scope, filter, selectedIds)
-      setOpen(false)
+      onClose()
     } catch {
       setError(true)
     } finally {
       setBusy(false)
     }
   }
-  const selectedNetwork = plan.networks.find((n) => n.id === filter.networkId)
+  const selectedNetworks = plan.networks.filter((n) =>
+    filter.networkIds.includes(n.id)
+  )
   return (
-    <>
-      <Button
-        variant="outline"
-        onClick={() => {
-          setContent(view)
-          setError(false)
-          setOpen(true)
-        }}
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !busy) onClose()
+      }}
+    >
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        showCloseButton={!busy}
       >
-        Export PDF
-      </Button>
-      <Dialog
-        open={open}
-        onOpenChange={(value) => {
-          if (!busy) setOpen(value)
-        }}
-      >
-        <DialogContent
-          className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
-          showCloseButton={!busy}
-        >
-          <DialogTitle>Export PDF</DialogTitle>
-          <DialogDescription>{plan.name}</DialogDescription>
-          <label className="grid gap-1">
-            Include
-            <select
-              className="h-11 border bg-background px-2"
-              value={content}
-              disabled={busy}
-              onChange={(e) => setContent(e.target.value as ReportView)}
-            >
-              <option>Diagram</option>
-              <option>Table</option>
-              <option value="Both">Diagram and table</option>
-            </select>
-          </label>
-          <label className="grid gap-1">
-            Export scope
-            <select
-              className="h-11 min-w-0 border bg-background px-2"
-              value={scope}
-              disabled={busy}
-              onChange={(e) => changeScope(e.target.value)}
-            >
-              <option value="current">Current filters</option>
-              <option value="all">Whole plan</option>
-              {!!plan.networks.length && (
-                <>
-                  <option value="selected">Selected networks in one PDF</option>
-                  <option value="separate">One PDF per network (ZIP)</option>
-                </>
-              )}
-              <optgroup label="Individual network">
-                {plan.networks.map((n) => (
-                  <option key={n.id} value={"network:" + n.id}>
-                    {n.name}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-          </label>
-          {scope === "selected" && (
-            <fieldset disabled={busy} className="grid gap-2">
-              <legend>Choose networks</legend>
-              <p>Each network starts on a new page, in the order shown.</p>
-              <div className="max-h-48 overflow-auto border p-2">
-                {plan.networks.map((n) => (
-                  <label key={n.id} className="flex items-center gap-2 py-1">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(n.id)}
-                      onChange={() => toggleNetwork(n.id)}
-                    />
-                    {n.name}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          )}
-          {scope === "current" && (
-            <p>
-              {selectedNetwork?.name ?? "All networks"}
-              {filter.query.trim() && " · Search “" + filter.query.trim() + "”"}
-            </p>
-          )}
-          {scope === "separate" && (
-            <p>
-              Includes all named networks. Choose Whole plan to include
-              unassigned inventory.
-            </p>
-          )}
-          {error && <p role="alert">Could not create the export. Try again.</p>}
-          <Button
-            disabled={
-              busy ||
-              (scope === "selected" &&
-                !plan.networks.some((n) => selectedIds.includes(n.id)))
-            }
-            onClick={download}
+        <DialogTitle>Export PDF</DialogTitle>
+        <DialogDescription>{plan.name}</DialogDescription>
+        <label className="grid gap-1">
+          Include
+          <select
+            className="h-11 border bg-background px-2"
+            value={content}
+            disabled={busy}
+            onChange={(e) => setContent(e.target.value as ReportView)}
           >
-            {busy
-              ? "Preparing export…"
-              : scope === "separate"
-                ? "Download ZIP"
-                : "Download PDF"}
-          </Button>
-        </DialogContent>
-      </Dialog>
-    </>
+            <option>Diagram</option>
+            <option>Table</option>
+            <option value="Both">Diagram and table</option>
+          </select>
+        </label>
+        <label className="grid gap-1">
+          Export scope
+          <select
+            className="h-11 min-w-0 border bg-background px-2"
+            value={scope}
+            disabled={busy}
+            onChange={(e) => changeScope(e.target.value)}
+          >
+            <option value="current">Current filters</option>
+            <option value="all">Whole plan</option>
+            {!!plan.networks.length && (
+              <>
+                <option value="selected">Selected networks in one PDF</option>
+                <option value="separate">One PDF per network (ZIP)</option>
+              </>
+            )}
+            <optgroup label="Individual network">
+              {plan.networks.map((n) => (
+                <option key={n.id} value={"network:" + n.id}>
+                  {n.name}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+        </label>
+        {scope === "selected" && (
+          <fieldset disabled={busy} className="grid gap-2">
+            <legend>Choose networks</legend>
+            <p>Each network starts on a new page, in the order shown.</p>
+            <div className="max-h-48 overflow-auto border p-2">
+              {plan.networks.map((n) => (
+                <label key={n.id} className="flex items-center gap-2 py-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(n.id)}
+                    onChange={() => toggleNetwork(n.id)}
+                  />
+                  {n.name}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
+        {scope === "current" && (
+          <p>
+            {selectedNetworks.map((n) => n.name).join(", ") || "All networks"}
+            {filter.query.trim() && " · Search “" + filter.query.trim() + "”"}
+          </p>
+        )}
+        {scope === "separate" && (
+          <p>
+            Includes all named networks. Choose Whole plan to include unassigned
+            inventory.
+          </p>
+        )}
+        {error && <p role="alert">Could not create the export. Try again.</p>}
+        <Button
+          disabled={
+            busy ||
+            (scope === "selected" &&
+              !plan.networks.some((n) => selectedIds.includes(n.id)))
+          }
+          onClick={download}
+        >
+          <IconDownload aria-hidden="true" />
+          {busy
+            ? "Preparing export…"
+            : scope === "separate"
+              ? "Download ZIP"
+              : "Download PDF"}
+        </Button>
+      </DialogContent>
+    </Dialog>
   )
 }

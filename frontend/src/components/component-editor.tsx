@@ -1,3 +1,9 @@
+import {
+  IconArrowsMove,
+  IconDeviceFloppy,
+  IconPlus,
+  IconX,
+} from "@tabler/icons-react"
 import { componentTypeSuggestions } from "@/lib/component-appearance"
 import { useId, useState, type FormEvent } from "react"
 import { InterfaceLinkDialog } from "./interface-link-dialog"
@@ -196,6 +202,7 @@ export function ComponentEditor({
                 onClose()
               }}
             >
+              <IconArrowsMove aria-hidden="true" data-icon="inline-start" />{" "}
               Move
             </Button>
           )}
@@ -290,7 +297,8 @@ export function ComponentEditor({
                   className="min-h-11"
                   onClick={addInterface}
                 >
-                  Add interface
+                  <IconPlus aria-hidden="true" data-icon="inline-start" /> Add
+                  interface
                 </Button>
               </div>
               {ports.map((port) => (
@@ -338,13 +346,14 @@ export function ComponentEditor({
                 onClick={onClose}
                 disabled={busy}
               >
-                Cancel
+                <IconX aria-hidden="true" data-icon="inline-start" /> Cancel
               </Button>
               <Button
                 type="submit"
                 className="min-h-11"
                 disabled={busy || readingIcon}
               >
+                <IconDeviceFloppy aria-hidden="true" data-icon="inline-start" />{" "}
                 Save component
               </Button>
             </div>
@@ -364,7 +373,7 @@ export function ComponentEditor({
                 className="min-h-11 justify-self-end"
                 onClick={onClose}
               >
-                Close
+                <IconX aria-hidden="true" data-icon="inline-start" /> Close
               </Button>
             </>
           )

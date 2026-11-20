@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase } from "./workspace-settings"
+import { editorPassphrase, workspaceAction } from "./workspace-settings"
 
 const destinationOrigin = process.env.NAMI_TEST_TRANSFER_DESTINATION
 
@@ -81,30 +81,31 @@ test("download a plan and reopen an imported copy with its diagram and interface
 
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    page.getByRole("button", { name: "Export plan", exact: true }).click(),
+    workspaceAction(page, "Export plan"),
   ])
   expect(download.suggestedFilename()).toMatch(/\.nami\.json$/)
   const file = info.outputPath("plan.nami.json")
   await download.saveAs(file)
 
-  const selection = page.getByLabel("Open plan")
+  const selectedId = () => new URL(page.url()).searchParams.get("plan")!
   let existingId = original.id
   if (destinationOrigin) {
     await page.context().clearCookies()
     await page.goto(destinationOrigin)
-    await page.getByRole("button", { name: "Unlock editing" }).click()
+    await workspaceAction(page, "Unlock editing")
     const unlock = page.getByRole("dialog", { name: "Unlock editing" })
     await unlock.getByLabel("Shared editor passphrase").fill(editorPassphrase)
     await unlock.getByRole("button", { name: "Unlock editing" }).click()
-    await page.getByRole("button", { name: "New plan" }).click()
+    await workspaceAction(page, "New plan")
     const create = page.getByRole("dialog", { name: "New plan" })
     await create.getByLabel("Plan name").fill(name)
     await create.getByRole("button", { name: "Create plan" }).click()
     await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
-    existingId = await selection.inputValue()
+    await page.getByRole("button", { name: "Table", exact: true }).click()
+    existingId = selectedId()
     expect(existingId).not.toBe(original.id)
   }
-  await page.getByRole("button", { name: "Import plan", exact: true }).click()
+  await workspaceAction(page, "Import plan")
   const dialog = page.getByRole("dialog", { name: "Import plan" })
   const packageInput = dialog.getByLabel("Plan package")
   const importButton = dialog.getByRole("button", { name: "Import plan" })
@@ -117,14 +118,14 @@ test("download a plan and reopen an imported copy with its diagram and interface
   await expect(dialog.getByRole("alert")).toContainText(
     "Choose a complete and valid NAMI plan package"
   )
-  await expect(selection).toHaveValue(existingId)
+  expect(selectedId()).toBe(existingId)
 
   await packageInput.setInputFiles(file)
   await importButton.click()
   await expect(dialog).toBeHidden()
-  await expect(selection).not.toHaveValue(existingId)
+  expect(selectedId()).not.toBe(existingId)
   if (destinationOrigin) {
-    const copiedId = await selection.inputValue()
+    const copiedId = selectedId()
     const existing = await page.request.get(
       new URL(`/api/plans/${existingId}`, destinationOrigin).href
     )
@@ -132,16 +133,21 @@ test("download a plan and reopen an imported copy with its diagram and interface
     expect((await existing.json()).components).toEqual([])
     expect(copiedId).not.toBe(original.id)
   }
-  await expect(selection.locator("option", { hasText: name })).toHaveCount(2)
+  await workspaceAction(page, "Open plan")
+  await expect(
+    page.getByRole("menuitemradio", { name, exact: true })
+  ).toHaveCount(2)
+  await page.keyboard.press("Escape")
+  await page.keyboard.press("Escape")
 
-  await page.getByRole("button", { name: "Sign out" }).click()
+  await workspaceAction(page, "Sign out")
   await page.reload()
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible()
-  await expect(selection).not.toHaveValue(existingId)
+  expect(selectedId()).not.toBe(existingId)
   await expect(panel).toHaveAttribute("style", originalPosition!)
   const icon = panel.getByRole("img", { name: "Custom icon" })
   const copied = await page.request.get(
-    new URL(`/api/plans/${await selection.inputValue()}`, page.url()).href
+    new URL(`/api/plans/${selectedId()}`, page.url()).href
   )
   expect(((await copied.json()) as Plan).links[0].lineType).toBe("elbow")
   await expect(icon).toBeVisible()
@@ -156,8 +162,17 @@ test("download a plan and reopen an imported copy with its diagram and interface
       name: "Operator panel / LAN to Drive (Wired)",
     })
   ).toBeVisible()
-  await expect(page.getByRole("button", { name: "Export plan" })).toBeHidden()
-  await expect(page.getByRole("button", { name: "Import plan" })).toBeHidden()
+  await page.getByRole("button", { name: "Workspace", exact: true }).click()
+  const menu = page.getByRole("menu", { name: "Workspace", exact: true })
+  await expect(menu.getByRole("menuitem", { name: "Export PDF" })).toBeVisible()
+  await expect(page.getByRole("menuitem", { name: "Export plan" })).toHaveCount(
+    0
+  )
+  await expect(page.getByRole("menuitem", { name: "Import plan" })).toHaveCount(
+    0
+  )
+  await menu.press("Escape")
+  await expect(menu).toBeHidden()
 
   await page.getByRole("button", { name: "Table", exact: true }).click()
   const table = page.getByRole("region", { name: "Table", exact: true })

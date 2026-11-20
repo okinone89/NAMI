@@ -1,3 +1,4 @@
+import { IconArrowBackUp, IconCheck } from "@tabler/icons-react"
 import { useEffect, useState } from "react"
 import type { InventoryReviewActions } from "@/components/inventory-tools"
 import { Button } from "@/components/ui/button"
@@ -18,10 +19,12 @@ type ChangeCallbacks = {
 export function InventoryCommitAction({
   review,
   bulkEdit = false,
+  onImported,
   onPlanChanged,
   withEditorAccess,
 }: ChangeCallbacks & {
   review: InventoryReviewActions
+  onImported?: (id: string) => void
   bulkEdit?: boolean
 }) {
   const { planId, request, preview, submitting, setSubmitting } = review
@@ -45,6 +48,7 @@ export function InventoryCommitAction({
           "The plan changed. Review the refreshed preview before confirming."
         )
       } else {
+        if (result.undo) onImported?.(result.undo.importId)
         review.close()
       }
     } catch (error) {
@@ -72,6 +76,7 @@ export function InventoryCommitAction({
         disabled={submitting || !canApply}
         onClick={() => void confirm()}
       >
+        <IconCheck aria-hidden="true" data-icon="inline-start" />{" "}
         {submitting
           ? "Applying…"
           : bulkEdit
@@ -85,10 +90,12 @@ export function InventoryCommitAction({
 export function InventoryUndoControl({
   planId,
   revision,
+  sessionImportId,
   onPlanChanged,
   withEditorAccess,
 }: ChangeCallbacks & {
   planId: string
+  sessionImportId?: string
   revision: number
 }) {
   const [status, setStatus] = useState<InventoryUndoStatus>()
@@ -136,10 +143,11 @@ export function InventoryUndoControl({
           disabled={busy}
           onClick={() => void undo()}
         >
+          <IconArrowBackUp aria-hidden="true" data-icon="inline-start" />{" "}
           {busy ? "Undoing…" : "Undo import"}
         </Button>
       )}
-      {status && !status.canUndo ? (
+      {status && status.importId === sessionImportId && !status.canUndo ? (
         <p role="status" className="text-xs">
           Undo unavailable. {status.reason}
         </p>
