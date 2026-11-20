@@ -58,6 +58,20 @@ class PlanPackages(unittest.TestCase):
                 self.assertEqual({plan["id"]: plan["name"] for plan in request(address, "/api/plans")[1]},
                                  {copy["id"]: original["name"], original["id"]: original["name"]})
 
+    def test_import_rejects_a_new_plan_with_conflicting_inventory_names(self):
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            with running_api(directory, settings_for(directory)) as address:
+                cookie = unlock(address)
+                package = {"version": 1, "plan": {
+                    "name": "Packaging cell", "components": [], "interfaces": [], "links": [],
+                    "networks": [{"id": "first", "name": "Machine"}, {"id": "second", "name": " MACHINE "}]}}
+                status, error, _ = request(address, "/api/plans/import", "POST", package, cookie)
+                self.assertEqual(status, 400)
+                self.assertIn("Machine", error["title"])
+                self.assertIn("Packaging cell", error["title"])
+                self.assertEqual(request(address, "/api/plans")[:2], (200, []))
+
     def test_invalid_packages_leave_no_partial_plan_on_either_provider(self):
         plan = {"name": "Packaging cell", "networks": [], "components": [],
                 "interfaces": [], "links": []}

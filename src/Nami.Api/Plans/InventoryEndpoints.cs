@@ -25,7 +25,7 @@ internal static class InventoryEndpoints
     private static async Task<Results<Ok<InventoryCommitResponse>, Conflict<InventoryPreviewResponse>, ProblemHttpResult>> Commit(
         string id, InventoryCommitRequest request, PlanStore store, CancellationToken cancellationToken)
     {
-        var draft = new InventoryPreviewRequest(request.Rows, request.KeepAddressConflicts);
+        var draft = new InventoryPreviewRequest(request.Rows, request.KeepAddressConflicts, request.Answers);
         if (!InventoryPreview.IsValid(draft) || string.IsNullOrWhiteSpace(request.StateToken) ||
             (request.BulkEdit && draft.Rows!.Any(row => !row.Skip && string.IsNullOrWhiteSpace(row.InterfaceId))))
         {
@@ -120,7 +120,8 @@ internal sealed record InventoryCommitRequest(
     IReadOnlyList<InventoryImportRow>? Rows,
     IReadOnlyList<AddressConflictApproval>? KeepAddressConflicts,
     string? StateToken,
-    bool BulkEdit = false);
+    bool BulkEdit = false,
+    IReadOnlyDictionary<string, string>? Answers = null);
 
 /// <summary>The saved plan and whether this import can be undone.</summary>
 internal sealed record InventoryCommitResponse(Plan Plan, InventoryUndoStatus? Undo);
