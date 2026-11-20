@@ -50,6 +50,12 @@ internal sealed record InventoryUndoReceipt(
             return Unavailable("An affected link changed after import.");
         var restoredLinks = InventoryRecordUndo<PlanLink>.Restore(linkChanges, current.Links, link => link.Id);
 
+        var ports = current.Interfaces.ToDictionary(port => port.Id);
+        bool CanRestore(LinkEndpoint end) => components.ContainsKey(end.ComponentId) &&
+            (end.InterfaceId is null || (ports.TryGetValue(end.InterfaceId, out var port) && port.ComponentId == end.ComponentId));
+        if (linkChanges.Any(change => change.Before is { } link && (!CanRestore(link.Source) || !CanRestore(link.Target))))
+            return Unavailable("An endpoint used before this import has been removed.");
+
         var removedPorts = Interfaces.Where(change => change.Before is null).Select(change => change.Id).ToHashSet();
         bool ReferencesAddition(LinkEndpoint end) => AddedComponents.ContainsKey(end.ComponentId) ||
             (end.InterfaceId is { } portId && removedPorts.Contains(portId));
@@ -105,28 +111,33 @@ internal sealed record InventoryUndoReceipt(
                 issue.Interfaces.Select(port => port.InterfaceId).ToArray()));
 }
 
-internal sealed record InventoryRecordUndo<T>(string Id, string? AfterHash, T? Before) where T : class
+internal sealed record InventoryRecordUndo<T>(string Id, string? AfterHash, T? Before, int? BeforeIndex = null) where T : class
 {
     public static InventoryRecordUndo<T>[] Capture(IReadOnlyList<T> before, IReadOnlyList<T> after, Func<T, string> id)
     {
         var previous = before.ToDictionary(id);
+        var remaining = after.Select(id).ToHashSet();
         return after.Where(item => !Equals(item, previous.GetValueOrDefault(id(item))))
             .Select(item => new InventoryRecordUndo<T>(id(item), InventoryPreview.Hash(item), previous.GetValueOrDefault(id(item))))
-            .ToArray();
+            .Concat(before.Select((record, index) => new InventoryRecordUndo<T>(id(record), null, record, index))
+                .Where(change => !remaining.Contains(change.Id))).ToArray();
     }
 
     public static bool IsStale(IReadOnlyList<InventoryRecordUndo<T>> changes, IReadOnlyList<T> current, Func<T, string> id)
     {
         var records = current.ToDictionary(id);
-        return changes.Any(change => !records.TryGetValue(change.Id, out var record) ||
-            InventoryPreview.Hash(record) != change.AfterHash);
+        return changes.Any(change => records.TryGetValue(change.Id, out var record)
+            ? change.AfterHash != InventoryPreview.Hash(record) : change.AfterHash is not null);
     }
 
     public static T[] Restore(IReadOnlyList<InventoryRecordUndo<T>> changes, IReadOnlyList<T> current, Func<T, string> id)
     {
         var affected = changes.ToDictionary(change => change.Id);
-        return current.Select(item => affected.TryGetValue(id(item), out var change) ? change.Before : item)
-            .OfType<T>().ToArray();
+        var restored = current.Select(item => affected.TryGetValue(id(item), out var change) ? change.Before : item)
+            .OfType<T>().ToList();
+        foreach (var deletion in changes.Where(change => change.AfterHash is null).OrderBy(change => change.BeforeIndex))
+            restored.Insert(Math.Min(deletion.BeforeIndex ?? restored.Count, restored.Count), deletion.Before!);
+        return restored.ToArray();
     }
 }
 

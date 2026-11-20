@@ -208,3 +208,76 @@ test("reciprocal cabling and consistent metadata edits go directly to the summar
   ])
   expect(edited.links).toEqual([{ ...built.links[0], medium: "wired" }])
 })
+
+test("a clean move names both ports and an engineer can remove one installed connection", async ({
+  page,
+}) => {
+  const plan = await createPlan(page, "Move a cable")
+  const path = "/api/plans/" + plan.id
+  const components = ["Controller", "Switch"].map((name) => ({
+    id: name,
+    name,
+    type: "Other",
+  }))
+  const interfaces = ["X1", "P07", "P08", "P09"].map((name) => ({
+    id: name,
+    name,
+    componentId: name === "X1" ? "Controller" : "Switch",
+  }))
+  const links = ["P07", "P08"].map((name) => ({
+    id: name,
+    source: { componentId: "Controller", interfaceId: "X1" },
+    target: { componentId: "Switch", interfaceId: name },
+    medium: "wired",
+  }))
+  expect(
+    (
+      await page.request.put(path, {
+        data: { ...plan, components, interfaces, links },
+      })
+    ).ok()
+  ).toBe(true)
+  async function review(rows: string[]) {
+    const dialog = await openImport(page, plan)
+    await dialog
+      .getByLabel("Spreadsheet rows")
+      .fill(
+        [
+          "Component,Interface,Component type,Network,Network subnet,IPv4,Link partner,Partner port,Connection type,Link protocol",
+          ...rows,
+        ].join("\n")
+      )
+    await dialog.getByRole("button", { name: "Load pasted rows" }).click()
+    await dialog.getByRole("button", { name: "Preview import" }).click()
+    return dialog
+  }
+  const move = await review([
+    "Controller,X1,,,,,Switch,P07,,",
+    "Controller,X1,,,,,Switch,P09,,",
+  ])
+  await expect(
+    move.getByRole("heading", { name: "Import summary" })
+  ).toBeVisible()
+  await expect(
+    move.getByText(/Move.*Controller \/ X1.*Switch \/ P08.*Switch \/ P09/)
+  ).toBeVisible()
+  await move.getByRole("button", { name: "Apply import" }).click()
+  await expect(move).toBeHidden()
+  const removal = await review(["Controller,X1,,,,,,,,"])
+  await expect(
+    removal.getByRole("heading", { name: "No changes" })
+  ).toBeVisible()
+  await removal.getByText("Review rows").click()
+  await removal
+    .getByRole("button", { name: /Remove connection.*Switch \/ P09/ })
+    .click()
+  await expect(
+    removal
+      .getByText(/Remove .*Controller \/ X1.*Switch \/ P09/, { exact: false })
+      .first()
+  ).toBeVisible()
+  await removal.getByRole("button", { name: "Apply import" }).click()
+  await expect(removal).toBeHidden()
+  const saved: Plan = await (await page.request.get(path)).json()
+  expect(saved.links.map((link) => link.id)).toEqual(["P07"])
+})
