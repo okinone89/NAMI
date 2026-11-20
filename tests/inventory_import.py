@@ -246,7 +246,7 @@ class InventoryImport(unittest.TestCase):
                     ["Cabinet", "", "Other", "", "", "", "", "", "", ""],
                 ])
 
-    def test_preview_blocks_populated_subnet_until_it_can_be_imported(self):
+    def test_preview_subnet_and_cabling_together_on_an_existing_network(self):
         with TemporaryDirectory() as tmp:
             directory = Path(tmp)
             with running_api(directory, settings_for(directory)) as address:
@@ -258,13 +258,13 @@ class InventoryImport(unittest.TestCase):
                          "ipv4": "192.168.1.41", **supplied}]
                 status, preview, _ = request(address, path + "/inventory/preview", "POST", {"rows": rows}, cookie)
                 self.assertEqual(status, 200)
-                self.assertFalse(preview["canApply"])
-                messages = " ".join(error["message"] for error in preview["rows"][0]["errors"])
-                self.assertIn("Network subnet", messages)
-                status, _, _ = request(address, path + "/inventory/commit", "POST",
-                                       {"rows": rows, "stateToken": preview["stateToken"]}, cookie)
-                self.assertEqual(status, 409)
+                self.assertTrue(preview["canApply"], preview)
                 self.assertEqual(request(address, path)[:2], (200, saved))
+                status, committed, _ = request(address, path + "/inventory/commit", "POST",
+                                               {"rows": rows, "stateToken": preview["stateToken"]}, cookie)
+                self.assertEqual(status, 200)
+                self.assertEqual(committed["plan"]["interfaces"][0]["ipv4"], "192.168.1.41")
+                self.assertEqual(committed["plan"]["links"][0]["protocol"], "Ethernet")
 
     def test_preview_matches_ids_and_falls_back_to_unique_names_without_writing(self):
         with TemporaryDirectory() as tmp:
