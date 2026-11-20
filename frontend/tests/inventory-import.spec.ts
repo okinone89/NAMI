@@ -71,222 +71,188 @@ async function openInventory(page: Page) {
   return plan.id
 }
 
-test("an exported inventory CSV previews its unchanged interfaces", async ({
+const csvHeader =
+  "Component,Interface,Component type,Network,Network subnet,IPv4,Link partner,Partner port,Connection type,Link protocol"
+
+async function previewRows(page: Page, ...rows: string[]) {
+  await workspaceAction(page, "Import inventory")
+  const dialog = page.getByRole("dialog", { name: "Import inventory" })
+  await dialog
+    .getByLabel("Spreadsheet rows")
+    .fill([csvHeader, ...rows].join("\n"))
+  await dialog.getByRole("button", { name: "Load pasted rows" }).click()
+  await dialog.getByRole("button", { name: "Preview import" }).click()
+  return dialog
+}
+
+test("clean changes go directly to one expandable import summary", async ({
   page,
 }) => {
   await openInventory(page)
-  const download = page.waitForEvent("download")
-  await workspaceAction(page, "Export inventory CSV")
-  const path = await (await download).path()
-  await workspaceAction(page, "Import inventory")
-  const dialog = page.getByRole("dialog", { name: "Import inventory" })
-  await dialog.getByLabel("CSV file").setInputFiles(path)
-  await dialog.getByRole("button", { name: "Preview import" }).click()
-  const filler = dialog.getByRole("region", { name: "Row 2" })
-  await expect(filler.getByText('Filler, "Line A" / LAN A')).toBeVisible()
-  await expect(filler.getByText("Matched by ID")).toBeVisible()
-  await expect(filler.getByText("No changes")).toBeVisible()
+  const dialog = await previewRows(page, "Capper PLC,LAN B,,,,192.168.1.25,,,,")
   await expect(
-    dialog.getByRole("region", { name: "Row 3" }).getByText("No changes")
+    dialog.getByRole("heading", { name: "Import summary" })
   ).toBeVisible()
-})
-
-test("flags conflicting network columns until the editor resolves the mapping", async ({
-  page,
-}) => {
-  const planId = await openInventory(page)
-  await workspaceAction(page, "Import inventory")
-  const dialog = page.getByRole("dialog", { name: "Import inventory" })
-  await dialog
-    .getByLabel("Spreadsheet rows")
-    .fill("Interface ID,Network ID,Network\nport-b,pack,Isolated packaging")
-  await dialog.getByRole("button", { name: "Load pasted rows" }).click()
-  const preview = dialog.getByRole("button", { name: "Preview import" })
-  const apply = dialog.getByRole("button", { name: "Apply import" })
-  await preview.click()
-  await expect(
-    dialog.getByText(/Network ID and Network identify different networks/)
-  ).toBeVisible()
-  await expect(apply).toBeDisabled()
-
-  await dialog.getByRole("button", { name: "Edit source or mapping" }).click()
-  await dialog.getByLabel("Network ID", { exact: true }).selectOption("")
-  await preview.click()
-  await expect(dialog.getByRole("group", { name: "After" })).toContainText(
-    "Isolated packaging"
-  )
-  await apply.click()
-  await expect(dialog).toBeHidden()
-  const response = await page.request.get("/api/plans/" + planId)
-  const saved: Plan = await response.json()
-  expect(saved.interfaces.find(({ id }) => id === "port-b")?.networkId).toBe(
-    "test"
-  )
-  const address = page.getByRole("textbox", {
-    name: "IPv4 address for Capper PLC / LAN B",
-  })
-  await address.fill("192.168.1.21")
-  await page.getByRole("button", { name: "Save interface" }).click()
-  const notice = page.getByText(/Undo unavailable/)
-  await expect(notice).toBeVisible()
-  await page.getByRole("button", { name: "Diagram", exact: true }).click()
-  await page.getByRole("button", { name: "Table", exact: true }).click()
-  await expect(notice).toBeVisible()
-  await page.reload()
-  const undoStatus = page.waitForResponse((response) =>
-    response.url().endsWith("/inventory/undo")
-  )
-  await page.getByRole("button", { name: "Table", exact: true }).click()
-  await undoStatus
-  await expect(address).toHaveValue("192.168.1.21")
-  await expect(notice).toHaveCount(0)
-})
-
-test("pasted rows can be mapped, reviewed, corrected, cleared, or skipped", async ({
-  page,
-}) => {
-  const planId = await openInventory(page)
-  await workspaceAction(page, "Import inventory")
-  const dialog = page.getByRole("dialog", { name: "Import inventory" })
-  await dialog
-    .getByLabel("Spreadsheet rows")
-    .fill(
-      [
-        "Asset\tAdapter\tAddress\tSegment",
-        "Capper PLC\tLAN B\t192.168.1.10\tPackaging",
-        "Packer PLC\tLAN C\t\tPackaging",
-        "Capper PLC\tLAN D\t\tPackaging",
-      ].join("\n")
-    )
-  await dialog.getByRole("button", { name: "Load pasted rows" }).click()
-  await dialog.getByLabel("Asset").selectOption({ label: "Component" })
-  await dialog.getByLabel("Adapter").selectOption({ label: "Interface" })
-  await dialog
-    .getByLabel("Address", { exact: true })
-    .selectOption({ label: "IPv4 address" })
-  await dialog.getByLabel("Segment").selectOption({ label: "Network" })
-  await dialog.getByRole("button", { name: "Preview import" }).click()
-
-  const capper = dialog.getByRole("region", { name: "Row 2" })
-  const packer = dialog.getByRole("region", { name: "Row 3" })
-  const unassigned = dialog.getByRole("region", { name: "Row 4" })
-  await expect(capper.getByText("Matched by name")).toBeVisible()
-  await expect(capper.getByRole("group", { name: "Before" })).toContainText(
+  const row = dialog.getByRole("region", { name: "Row 2" })
+  await expect(row).toBeHidden()
+  await dialog.getByText("Review rows", { exact: true }).click()
+  await expect(row.getByRole("group", { name: "Before" })).toContainText(
     "192.168.1.20"
   )
-  await expect(capper.getByRole("group", { name: "After" })).toContainText(
-    "192.168.1.10"
+  await expect(row.getByRole("group", { name: "After" })).toContainText(
+    "192.168.1.25"
   )
-  await expect(capper.getByText('Filler, "Line A" / LAN A')).toBeVisible()
-  await expect(packer.getByText("Add component and interface")).toBeVisible()
-  await capper.getByRole("button", { name: "Keep conflict flagged" }).click()
-  await expect(capper.getByText("Conflict kept and flagged")).toBeVisible()
-
-  await capper.getByRole("button", { name: "Correct row" }).click()
-  await capper.getByLabel("IPv4 address", { exact: true }).fill("192.168.1.22")
-  await dialog.getByRole("button", { name: "Update preview" }).click()
-  await expect(capper.getByRole("group", { name: "After" })).toContainText(
-    "192.168.1.22"
-  )
-  await expect(capper.getByText("Conflict kept and flagged")).toHaveCount(0)
-
-  await capper.getByLabel("Clear IPv4 value").check()
-  await packer.getByLabel("Skip row").check()
-  await unassigned.getByRole("button", { name: "Correct row" }).click()
-  await unassigned.getByLabel("Clear IPv4 value").check()
-  await dialog.getByRole("button", { name: "Update preview" }).click()
-  await expect(capper.getByRole("group", { name: "After" })).toContainText(
-    "Clear value"
-  )
-  await expect(packer.getByText("Skipped", { exact: true })).toBeVisible()
-  await expect(unassigned.getByRole("group", { name: "After" })).toContainText(
-    "Clear value"
-  )
-
-  const current: Plan = await (
-    await page.request.get(`/api/plans/${planId}`)
-  ).json()
-  expect(current.interfaces.map((port) => port.ipv4)).toEqual([
-    "192.168.1.10",
-    "192.168.1.20",
-    null,
-  ])
+  await dialog.getByRole("button", { name: "Apply import" }).click()
+  await expect(dialog).toBeHidden()
+  await expect(
+    page.getByRole("textbox", { name: "IPv4 address for Capper PLC / LAN B" })
+  ).toHaveValue("192.168.1.25")
 })
 
-test("reconfirms a stale inventory import and undoes it after reopening", async ({
+test("one decision covers a shared address conflict and Back preserves its answer", async ({
+  page,
+}) => {
+  await openInventory(page)
+  const dialog = await previewRows(
+    page,
+    "Capper PLC,LAN B,,,,192.168.1.10,,,,",
+    "Capper PLC,LAN D,,,,192.168.1.10,,,,",
+    "Packer PLC,LAN C,PLC,,,,,,,"
+  )
+  await expect(dialog.getByText("Decision 1 of 1")).toBeVisible()
+  await expect(dialog.getByRole("region", { name: "Row 2" })).toBeVisible()
+  await expect(dialog.getByRole("region", { name: "Row 3" })).toBeVisible()
+  await expect(dialog.getByRole("region", { name: "Row 4" })).toHaveCount(0)
+  await expect(dialog.getByText('Filler, "Line A" / LAN A')).toBeVisible()
+  const keep = dialog.getByRole("radio", { name: "Keep conflict flagged" })
+  const next = dialog.getByRole("button", { name: "Next" })
+  await expect(keep).not.toBeChecked()
+  await expect(next).toBeDisabled()
+  await keep.check()
+  await dialog.getByRole("button", { name: "Back" }).click()
+  await dialog.getByRole("button", { name: "Preview import" }).click()
+  await expect(keep).toBeChecked()
+  await next.click()
+  await expect(
+    dialog.getByRole("heading", { name: "Import summary" })
+  ).toBeVisible()
+  await dialog.getByRole("button", { name: "Back" }).click()
+  await expect(keep).toBeChecked()
+  await dialog.getByRole("radio", { name: "Skip affected rows" }).check()
+  await next.click()
+  await expect(dialog.getByText("Skipped rows 2, 3")).toBeVisible()
+  await dialog.getByRole("button", { name: "Apply import" }).click()
+  await expect(dialog).toBeHidden()
+  const table = page.getByRole("table", { name: "Interfaces" })
+  await expect(
+    table.getByRole("textbox", { name: "IPv4 address for Capper PLC / LAN B" })
+  ).toHaveValue("192.168.1.20")
+  await expect(table.getByRole("row", { name: /Packer PLC/ })).toBeVisible()
+  await page.getByRole("button", { name: "Undo import" }).click()
+  await expect(table.getByRole("row", { name: /Packer PLC/ })).toHaveCount(0)
+})
+
+test("changing a correction replaces the downstream decision and Cancel discards the draft", async ({
+  page,
+}) => {
+  await openInventory(page)
+  const dialog = await previewRows(
+    page,
+    "Capper PLC,LAN D,,,,bad,,,,",
+    "Capper PLC,LAN B,,,,192.168.1.10,,,,"
+  )
+  const next = dialog.getByRole("button", { name: "Next" })
+  const back = dialog.getByRole("button", { name: "Back" })
+  const keep = dialog.getByRole("radio", { name: "Keep conflict flagged" })
+  await dialog.getByRole("radio", { name: "Correct values" }).check()
+  const ipv4 = dialog
+    .getByRole("region", { name: "Row 2" })
+    .getByLabel(/^IPv4( address)?$/)
+  await ipv4.fill("192.168.1.11")
+  await next.click()
+  await expect(dialog.getByText("Decision 2 of 2")).toBeVisible()
+  await keep.check()
+  await next.click()
+  await back.click()
+  await expect(keep).toBeChecked()
+  await back.click()
+  await expect(ipv4).toHaveValue("192.168.1.11")
+  await ipv4.fill("192.168.1.10")
+  await next.click()
+  await expect(dialog.getByRole("region", { name: "Row 2" })).toBeVisible()
+  await expect(dialog.getByRole("region", { name: "Row 3" })).toBeVisible()
+  await expect(keep).not.toBeChecked()
+  await expect(next).toBeDisabled()
+  await dialog.getByRole("button", { name: "Cancel" }).click()
+  const table = page.getByRole("table", { name: "Interfaces" })
+  await expect(
+    table.getByRole("textbox", { name: "IPv4 address for Capper PLC / LAN B" })
+  ).toHaveValue("192.168.1.20")
+  await expect(
+    table.getByRole("textbox", { name: "IPv4 address for Capper PLC / LAN D" })
+  ).toHaveValue("")
+})
+
+test("a stale apply reopens the new conflict and preserves unrelated answers through undo", async ({
   page,
   request,
 }) => {
-  const planId = await openInventory(page)
-  const path = `/api/plans/${planId}`
-  await workspaceAction(page, "Import inventory")
-  const dialog = page.getByRole("dialog", { name: "Import inventory" })
-  await dialog
-    .getByLabel("Spreadsheet rows")
-    .fill(
-      "Component,Interface,IPv4\nCapper PLC,LAN B,192.168.1.25\nPacker PLC,LAN C,192.168.1.30\nSkipped PLC,LAN D,192.168.1.40"
-    )
-  await dialog.getByRole("button", { name: "Load pasted rows" }).click()
-  await dialog.getByRole("button", { name: "Preview import" }).click()
-  await dialog
-    .getByRole("region", { name: "Row 4" })
-    .getByLabel("Skip row")
-    .check()
-  await dialog.getByRole("button", { name: "Update preview" }).click()
+  const path = "/api/plans/" + (await openInventory(page))
+  const dialog = await previewRows(
+    page,
+    "Capper PLC,LAN B,,,,192.168.1.10,,,,",
+    "Capper PLC,LAN D,,,,192.168.1.25,,,,",
+    "Packer PLC,LAN C,PLC,,,,,,,"
+  )
+  await dialog.getByRole("radio", { name: "Keep conflict flagged" }).check()
+  await dialog.getByRole("button", { name: "Next" }).click()
+  await expect(
+    dialog.getByRole("heading", { name: "Import summary" })
+  ).toBeVisible()
 
-  const editor = await request.post("/api/editor-session", {
+  // A second editor assigns the previously available address during review.
+  await request.post("/api/editor-session", {
     data: { passphrase: editorPassphrase },
   })
-  expect(editor.ok()).toBe(true)
   const current: Plan = await (await request.get(path)).json()
-  const competingAddress = "192.168.1.21"
-  const competingSave = await request.put(path, {
-    data: {
-      ...current,
-      interfaces: current.interfaces.map((port) =>
-        port.id === "port-b" ? { ...port, ipv4: competingAddress } : port
-      ),
-    } satisfies Plan,
+  current.interfaces.push({
+    id: "extra",
+    componentId: "plc-a",
+    name: "Service",
+    networkId: "pack",
+    ipv4: "192.168.1.25",
   })
-  expect(competingSave.ok()).toBe(true)
+  expect((await request.put(path, { data: current })).ok()).toBe(true)
 
   const apply = dialog.getByRole("button", { name: "Apply import" })
   await apply.click()
-  await expect(dialog.getByRole("status")).toContainText(
-    "Review the refreshed preview"
-  )
+  await expect(dialog.getByText(/The plan changed/)).toBeVisible()
+  await expect(dialog.getByRole("region", { name: "Row 3" })).toBeVisible()
+  await expect(dialog.getByRole("region", { name: "Row 2" })).toHaveCount(0)
   await expect(
-    dialog
-      .getByRole("region", { name: "Row 2" })
-      .getByRole("group", { name: "Before" })
-  ).toContainText(competingAddress)
-  expect(await (await page.request.get(path)).json()).toEqual(
-    await competingSave.json()
-  )
-
+    dialog.getByRole("radio", { name: "Keep conflict flagged" })
+  ).not.toBeChecked()
+  await dialog.getByRole("radio", { name: "Skip affected rows" }).check()
+  await dialog.getByRole("button", { name: "Next" }).click()
   await apply.click()
   await expect(dialog).toBeHidden()
-  const interfaces = page.getByRole("table", { name: "Interfaces" })
-  const capperAddress = interfaces.getByRole("textbox", {
+  const table = page.getByRole("table", { name: "Interfaces" })
+  const capper = table.getByRole("textbox", {
     name: "IPv4 address for Capper PLC / LAN B",
   })
-  await expect(capperAddress).toHaveValue("192.168.1.25")
+  await expect(capper).toHaveValue("192.168.1.10")
   await expect(
-    interfaces.getByRole("row", { name: /Packer PLC/ })
-  ).toBeVisible()
-  await expect(
-    interfaces.getByRole("row", { name: /Skipped PLC/ })
-  ).toHaveCount(0)
-
+    table.getByRole("textbox", { name: "IPv4 address for Capper PLC / LAN D" })
+  ).toHaveValue("")
+  await expect(table.getByRole("row", { name: /Packer PLC/ })).toBeVisible()
   await page.reload()
   await page.getByRole("button", { name: "Table", exact: true }).click()
   await page.getByRole("button", { name: "Undo import" }).click()
-  await expect(capperAddress).toHaveValue(competingAddress)
-  await expect(interfaces.getByRole("row", { name: /Packer PLC/ })).toHaveCount(
-    0
-  )
-  const undone: Plan = await (await page.request.get(path)).json()
-  expect(undone.components.map(({ id }) => id)).toEqual(["plc-a", "plc-b"])
+  await expect(capper).toHaveValue("192.168.1.20")
+  await expect(table.getByRole("row", { name: /Packer PLC/ })).toHaveCount(0)
+  await expect(
+    table.getByRole("textbox", { name: /IPv4 address for .*Service/ })
+  ).toHaveValue("192.168.1.25")
 })
 
 test("reviews table selections before bulk editing and reconfirms a stale change", async ({

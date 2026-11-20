@@ -6,6 +6,9 @@ import {
   IconRefresh,
 } from "@tabler/icons-react"
 import { useId, useRef, useState, type ReactNode } from "react"
+import type { DecisionAnswer } from "@/lib/import-decisions"
+import { ImportWizard } from "@/components/import-wizard"
+import { PreviewValues } from "@/components/inventory-values"
 import { Ipv4IssueList } from "@/components/ipv4-issues"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,11 +36,9 @@ import {
   previewInventory,
   type InventoryClearField,
   type InventoryImportRow,
-  type InventoryMapping,
   type InventoryPreview,
   type InventoryPreviewRequest,
   type InventoryPreviewRow,
-  type InventoryValues,
 } from "@/lib/inventory"
 import type { PlanNetwork, WithEditorAccess } from "@/lib/plans"
 
@@ -75,7 +76,9 @@ export function InventoryDialog({
   const id = useId()
   const [pasted, setPasted] = useState("")
   const [sheet, setSheet] = useState<ReturnType<typeof parseInventory>>()
-  const [mapping, setMapping] = useState<InventoryMapping>([])
+  const [savedAnswers, setSavedAnswers] = useState<
+    Record<string, DecisionAnswer>
+  >({})
   const [review, setReview] = useState<InventoryReview>()
   const [edits, setEdits] = useState<
     Record<number, Partial<InventoryImportRow>>
@@ -96,7 +99,6 @@ export function InventoryDialog({
     try {
       const parsed = parseInventory(source)
       setSheet(parsed)
-      setMapping(defaultInventoryMapping(parsed.headings))
     } catch (failure) {
       setError(
         failure instanceof Error
@@ -140,6 +142,23 @@ export function InventoryDialog({
     }
   }
 
+  if (!bulk && review) {
+    return (
+      <ImportWizard
+        initialReview={review}
+        planId={planId}
+        close={close}
+        savedAnswers={savedAnswers}
+        backToSource={(answers) => {
+          setSavedAnswers(answers)
+          setReview(undefined)
+        }}
+        renderActions={renderActions}
+        withEditorAccess={withEditorAccess}
+      />
+    )
+  }
+
   return (
     <DialogContent
       className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-2xl"
@@ -152,7 +171,7 @@ export function InventoryDialog({
         <DialogDescription>
           {bulk
             ? `Review changes to ${bulk.interfaceIds.length} selected interfaces before applying them.`
-            : "Use a header row followed by one row per interface. Blank cells keep existing values."}
+            : "Upload an exported inventory CSV or paste its rows with the headers. Blank cells keep existing values."}
         </DialogDescription>
       </DialogHeader>
       <fieldset
@@ -192,7 +211,11 @@ export function InventoryDialog({
                   rows={3}
                   className="min-h-11 resize-y border bg-background p-2"
                   value={pasted}
-                  onChange={(event) => setPasted(event.target.value)}
+                  onChange={(event) => {
+                    setPasted(event.target.value)
+                    setSheet(undefined)
+                    setError("")
+                  }}
                 />
               </Field>
             </FieldGroup>
@@ -208,52 +231,20 @@ export function InventoryDialog({
             </Button>
             {sheet && (
               <div className="flex min-w-0 flex-col gap-3 border-t pt-4">
-                <h3 className="font-medium">Map columns</h3>
-                <FieldGroup className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {sheet.headings.map((heading, index) => (
-                    <Field key={index} className="min-w-0">
-                      <FieldLabel
-                        htmlFor={`${id}-column-${index}`}
-                        className="wrap-break-word"
-                      >
-                        {heading || `Column ${index + 1}`}
-                      </FieldLabel>
-                      <select
-                        id={`${id}-column-${index}`}
-                        value={mapping[index]}
-                        className="min-h-11 border bg-background px-2"
-                        onChange={(event) => {
-                          const field = event.target
-                            .value as InventoryMapping[number]
-                          setMapping((previous) =>
-                            previous.map((value, column) =>
-                              column === index ? field : value
-                            )
-                          )
-                          setReview(undefined)
-                        }}
-                      >
-                        <option value="">Ignore column</option>
-                        {inventoryFields.map(({ key, label }) => (
-                          <option
-                            key={key}
-                            value={key}
-                            disabled={
-                              mapping.includes(key) && mapping[index] !== key
-                            }
-                          >
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                  ))}
-                </FieldGroup>
+                <p>
+                  {sheet.rows.length} source{" "}
+                  {sheet.rows.length === 1 ? "row" : "rows"} loaded
+                </p>
                 <Button
                   type="button"
                   className="min-h-11 self-start"
                   onClick={() =>
-                    void preview({ rows: mapInventoryRows(sheet, mapping) })
+                    void preview({
+                      rows: mapInventoryRows(
+                        sheet,
+                        defaultInventoryMapping(sheet.headings)
+                      ),
+                    })
                   }
                 >
                   <IconEye aria-hidden="true" data-icon="inline-start" />{" "}
@@ -265,9 +256,7 @@ export function InventoryDialog({
         )}
         {review && (
           <div className="flex flex-col gap-2">
-            <h3 className="font-medium">
-              {bulk ? "Bulk edit preview" : "Import preview"}
-            </h3>
+            <h3 className="font-medium">Bulk edit preview</h3>
             {review.preview.rows.map((row) => (
               <PreviewRow
                 key={row.rowNumber}
@@ -278,7 +267,6 @@ export function InventoryDialog({
                   rowNumber: row.rowNumber,
                 }}
                 canKeep={!dirty && !busy && !submitting}
-                bulkEdit={Boolean(bulk)}
                 onEdit={(changes) =>
                   setEdits((previous) => ({
                     ...previous,
@@ -316,7 +304,7 @@ export function InventoryDialog({
                 }}
               >
                 <IconPencil aria-hidden="true" data-icon="inline-start" />{" "}
-                {bulk ? "Change bulk values" : "Edit source or mapping"}
+                Change bulk values
               </Button>
               {dirty && (
                 <Button
@@ -439,14 +427,12 @@ function PreviewRow({
   row,
   draft,
   canKeep,
-  bulkEdit,
   onEdit,
   onKeep,
 }: {
   row: InventoryPreviewRow
   draft: InventoryImportRow
   canKeep: boolean
-  bulkEdit: boolean
   onEdit: (changes: Partial<InventoryImportRow>) => void
   onKeep: (approval: AddressConflictApproval) => void
 }) {
@@ -574,10 +560,7 @@ function PreviewRow({
           {inventoryFields
             .filter(
               ({ key }) =>
-                !bulkEdit ||
-                key === "networkId" ||
-                key === "networkName" ||
-                key === "ipv4"
+                key === "networkId" || key === "networkName" || key === "ipv4"
             )
             .map(({ key, label }) => (
               <Field key={key}>
@@ -609,37 +592,5 @@ function PreviewRow({
         </FieldGroup>
       )}
     </section>
-  )
-}
-
-function PreviewValues({
-  label,
-  values,
-  clear = [],
-}: {
-  label: string
-  values: InventoryValues
-  clear?: InventoryClearField[]
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={label}
-      className="flex flex-col gap-1 bg-muted/50 p-2"
-    >
-      <h5 className="font-medium">{label}</h5>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-2">
-        <dt>Component type</dt>
-        <dd>{values.componentType}</dd>
-        <dt>Network</dt>
-        <dd>
-          {clear.includes("network")
-            ? "Clear value"
-            : (values.networkName ?? "—")}
-        </dd>
-        <dt>IPv4 address</dt>
-        <dd>{clear.includes("ipv4") ? "Clear value" : (values.ipv4 ?? "—")}</dd>
-      </dl>
-    </div>
   )
 }
