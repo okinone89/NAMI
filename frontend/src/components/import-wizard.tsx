@@ -66,6 +66,7 @@ export function ImportWizard({
     .filter((row) => row.match === "skipped")
     .map((row) => row.rowNumber)
   const changed = review.preview.rows.filter((row) => row.hasChanges).length
+  const noChanges = !decision && !review.preview.canApply && changed === 0
 
   async function preview(
     request: InventoryPreviewRequest
@@ -77,7 +78,7 @@ export function ImportWizard({
   }
 
   function refresh(refreshed: InventoryReview["preview"]) {
-    setNotice("The plan changed. Review the refreshed preview before applying.")
+    setNotice("The plan changed. Review the refreshed preview.")
     setError("")
     setReview({ ...review, preview: refreshed })
   }
@@ -142,15 +143,17 @@ export function ImportWizard({
   return (
     <DialogContent
       className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-2xl"
-      showCloseButton={!submitting}
+      showCloseButton={!submitting && !noChanges}
     >
       <DialogHeader className="pr-8">
         <DialogTitle>Import inventory</DialogTitle>
-        <DialogDescription>
-          {decision
-            ? `Decision ${history.length + 1} of ${history.length + pending.length}`
-            : "Review proposed changes before applying the import."}
-        </DialogDescription>
+        {!noChanges && (
+          <DialogDescription>
+            {decision
+              ? `Decision ${history.length + 1} of ${history.length + pending.length}`
+              : "Review proposed changes before applying the import."}
+          </DialogDescription>
+        )}
       </DialogHeader>
       <fieldset
         key={key || "summary"}
@@ -232,12 +235,14 @@ export function ImportWizard({
           </>
         ) : (
           <>
-            <h3 className="font-medium">Import summary</h3>
-            <p>
-              {changed
-                ? `${changed} ${changed === 1 ? "row has" : "rows have"} changes.`
-                : "No changes"}
-            </p>
+            <h3 className="font-medium">
+              {noChanges ? "No changes" : "Import summary"}
+            </h3>
+            {changed > 0 && (
+              <p>
+                {changed} {changed === 1 ? "row has" : "rows have"} changes.
+              </p>
+            )}
             {skipped.length > 0 && (
               <p>
                 Skipped {skipped.length === 1 ? "row" : "rows"}{" "}
@@ -267,8 +272,12 @@ export function ImportWizard({
         <Button variant="outline" disabled={disabled} onClick={back}>
           Back
         </Button>
-        <Button variant="outline" disabled={disabled} onClick={close}>
-          Cancel
+        <Button
+          variant={noChanges ? "default" : "outline"}
+          disabled={disabled}
+          onClick={close}
+        >
+          {noChanges ? "Close" : "Cancel"}
         </Button>
         {decision ? (
           <Button
@@ -283,6 +292,7 @@ export function ImportWizard({
             Next
           </Button>
         ) : (
+          !noChanges &&
           renderActions?.({
             ...review,
             planId,

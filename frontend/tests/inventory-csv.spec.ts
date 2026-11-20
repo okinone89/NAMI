@@ -98,6 +98,27 @@ test("exported equipment imports into an empty plan and matches reordered pasted
   expect(await readFile(await exportFile(), "utf8")).toEqual(
     await readFile(file, "utf8")
   )
+  const path = "/api/plans/" + target.id
+  const imported: Plan = await (await page.request.get(path)).json()
+  const receipt = await (
+    await page.request.get(path + "/inventory/undo")
+  ).json()
+  await workspaceAction(page, "Import inventory")
+  await dialog.getByLabel("CSV file").setInputFiles(file)
+  await dialog.getByRole("button", { name: "Preview import" }).click()
+  await expect(
+    dialog.getByRole("heading", { name: "No changes" })
+  ).toBeVisible()
+  await expect(
+    dialog.getByRole("button", { name: "Apply import" })
+  ).toHaveCount(0)
+  await expect(dialog.getByRole("button", { name: "Next" })).toHaveCount(0)
+  await dialog.getByRole("button", { name: "Close", exact: true }).click()
+  await expect(dialog).toBeHidden()
+  expect(await (await page.request.get(path)).json()).toEqual(imported)
+  expect(
+    await (await page.request.get(path + "/inventory/undo")).json()
+  ).toEqual(receipt)
 
   await workspaceAction(page, "Import inventory")
   await dialog
@@ -113,13 +134,18 @@ test("exported equipment imports into an empty plan and matches reordered pasted
   await dialog.getByRole("button", { name: "Load pasted rows" }).click()
   await dialog.getByRole("button", { name: "Preview import" }).click()
   await expect(
-    dialog.getByText("No changes", { exact: true }).first()
+    dialog.getByRole("heading", { name: "No changes" })
   ).toBeVisible()
-  await expect(
-    dialog
-      .getByRole("button", { name: "Apply import" })
-      .and(page.locator(":enabled"))
-  ).toHaveCount(0)
+  await dialog.getByRole("button", { name: "Close", exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await page.getByRole("button", { name: "Table", exact: true }).click()
+  await page.getByRole("button", { name: "Undo import" }).click()
+  await expect
+    .poll(async () => (await (await page.request.get(path)).json()).components)
+    .toEqual([])
+  const undone: Plan = await (await page.request.get(path)).json()
+  expect(undone.interfaces).toEqual([])
+  expect(undone.revision).toBe(imported.revision + 1)
 })
 
 test("reciprocal cabling and consistent metadata edits go directly to the summary", async ({
