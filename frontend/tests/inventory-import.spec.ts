@@ -340,3 +340,68 @@ test("reviews table selections before bulk editing and reconfirms a stale change
   ])
   await expect(page.getByRole("button", { name: "Undo import" })).toHaveCount(0)
 })
+
+test("correcting a network-only subnet shows both network values and restores the old subnet on undo", async ({
+  page,
+}) => {
+  const path = "/api/plans/" + (await openInventory(page))
+  const dialog = await previewRows(page, ",,,Packaging,10.0.0.0/8,,,,,")
+  await expect(
+    dialog.getByRole("heading", { name: "Review network subnet" })
+  ).toBeVisible()
+  await expect(dialog.getByText(/192\.168\.1\.10 on Filler/)).toBeVisible()
+  await dialog.getByRole("radio", { name: "Correct values" }).check()
+  await dialog
+    .getByRole("textbox", { name: "Network subnet" })
+    .fill("192.168.1.0/24")
+  await dialog.getByRole("button", { name: "Next" }).click()
+  await dialog.getByText("Review rows", { exact: true }).click()
+  await expect(dialog.getByRole("group", { name: "After" })).toContainText(
+    "192.168.1.0/24"
+  )
+  await dialog.getByRole("button", { name: "Apply import" }).click()
+  await expect(dialog).toBeHidden()
+  const saved: Plan = await (await page.request.get(path)).json()
+  expect(saved.networks.find((n) => n.id === "pack")?.subnet).toBe(
+    "192.168.1.0/24"
+  )
+  await page.getByRole("button", { name: "Undo import" }).click()
+  await expect
+    .poll(async () => {
+      const restored: Plan = await (await page.request.get(path)).json()
+      return restored.networks.find((n) => n.id === "pack")?.subnet
+    })
+    .toBeNull()
+})
+
+test("confirms grouped component and port renames before applying and undoing them", async ({
+  page,
+}) => {
+  await openInventory(page)
+  const dialog = await previewRows(
+    page,
+    "Capper 2,Control,,Packaging,,192.168.1.20,,,,",
+    "Capper 2,LAN D,,,,,,,,"
+  )
+  const next = dialog.getByRole("button", { name: "Next" })
+  const rename = dialog.getByRole("radio", {
+    name: "Rename existing component",
+  })
+  await expect(rename).not.toBeChecked()
+  await expect(next).toBeDisabled()
+  await expect(dialog.getByRole("region", { name: "Row 3" })).toBeVisible()
+  await rename.check()
+  await next.click()
+  await dialog.getByRole("radio", { name: "Rename existing port" }).check()
+  await next.click()
+  await dialog.getByRole("button", { name: "Apply import" }).click()
+  const table = page.getByRole("table", { name: "Interfaces" })
+  await expect(
+    table.getByRole("row", { name: /Capper 2.*Control/ })
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Undo import" }).click()
+  await expect(
+    table.getByRole("row", { name: /Capper PLC.*LAN B/ })
+  ).toBeVisible()
+  await expect(table.getByRole("row", { name: /Capper 2/ })).toHaveCount(0)
+})

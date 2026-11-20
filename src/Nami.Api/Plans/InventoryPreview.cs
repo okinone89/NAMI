@@ -36,7 +36,8 @@ internal sealed record InventoryValues(
     string InterfaceName,
     string? NetworkId,
     string? NetworkName,
-    string? Ipv4);
+    string? Ipv4,
+    string? NetworkSubnet = null);
 
 /// <summary>A problem with matching or mapping an inventory row.</summary>
 internal sealed record InventoryRowError(string Code, string Message);
@@ -73,7 +74,7 @@ internal static partial class InventoryPreview
     private static readonly IEqualityComparer<string> Names = InventoryNames.Comparer;
 
     public static bool IsValid(InventoryPreviewRequest request) =>
-        request.Rows is { Count: > 0 } rows &&
+        request.Rows is { } rows &&
         rows.All(row => row is not null && row.RowNumber > 0) &&
         rows.Select(row => row.RowNumber).Distinct().Count() == rows.Count;
 
@@ -82,22 +83,29 @@ internal static partial class InventoryPreview
         var index = new PlanIndex(current);
         var decisions = new InventoryDecisions(request.Answers);
         var candidates = request.Rows!.Select(row => Match(row, index, decisions)).ToArray();
-        ResolveRepeatedInterfaces(candidates);
+        ResolveRenames(candidates, index, decisions);
+        ResolveRepeatedInterfaces(candidates, index, decisions);
         ResolveNewComponents(candidates);
 
+        var networks = BuildNetworks(candidates, index, decisions);
         var edits = candidates.Where(row => row.Component is not null && row.Errors.Count == 0).ToArray();
         var changes = edits.Where(row => row.Before != row.After).DistinctBy(row => row.TargetInterfaceId).ToArray();
         var byInterface = changes.ToDictionary(row => row.After!.Id, row => row.After!);
+        var renamed = edits.Where(row => !row.AddsComponent && row.Component != index.Components[row.Component!.Id])
+            .Select(row => row.Component!).DistinctBy(component => component.Id).ToDictionary(component => component.Id);
         var proposed = current with
         {
-            Components = current.Components.Concat(edits.Where(row => row.AddsComponent)
+            Networks = networks.Values.ToArray(),
+            Components = current.Components.Select(component => renamed.GetValueOrDefault(component.Id, component))
+                .Concat(edits.Where(row => row.AddsComponent)
                 .Select(row => row.Component!).DistinctBy(component => component.Id)).ToArray(),
             Interfaces = current.Interfaces.Select(port => byInterface.GetValueOrDefault(port.Id, port))
                 .Concat(changes.Where(row => row.Before is null).Select(row => row.After!)).ToArray()
         };
 
         var wiring = new InventoryWiring(proposed);
-        var linkPreview = ResolveLinks(proposed, edits, index, decisions, wiring);
+        var pendingIdentity = candidates.Any(row => row.Errors.Any(error => error.Code is "possibleRename" or "conflictingRenames"));
+        var linkPreview = pendingIdentity ? [] : ResolveLinks(proposed, edits, index, decisions, wiring);
         var linkChanges = linkPreview.Where(link => link.Before != link.After).ToArray();
         var linksById = linkChanges.Where(change => change.Before is not null)
             .ToDictionary(change => change.Before!.Id, change => change.After);
@@ -109,36 +117,47 @@ internal static partial class InventoryPreview
         var changedLinkRows = linkChanges.SelectMany(link => link.RowNumbers).ToHashSet();
         var addressIssues = ByInterface(AddressValidation.Inspect(proposed));
         var blockers = AddressValidation.BlockingIssues(current, proposed, request.KeepAddressConflicts);
-        var blockingIssues = ByInterface(blockers);
+        var subnetIssues = ReportSubnetIssues(candidates, blockers, networks, decisions);
+        var blockingIssues = ByInterface(blockers.Except(subnetIssues));
         var previewRows = candidates.Select(row =>
         {
             var componentOnly = row.Component is not null && row.TargetInterfaceId is null && row.Errors.Count == 0;
+            var networkId = row.NetworkId;
+            var networkBefore = networkId is null ? null : index.StoredNetworks.GetValueOrDefault(networkId);
+            var networkAfter = networkId is null ? null : networks.GetValueOrDefault(networkId);
             var hasChanges = changedLinkRows.Contains(row.Input.RowNumber) || row.AddsComponent ||
-                (row.After is not null && row.Before != row.After);
+                (row.Component is not null && renamed.ContainsKey(row.Component.Id)) ||
+                (row.After is not null && row.Before != row.After) ||
+                (networkAfter is not null && networkBefore != networkAfter);
             var visible = row.TargetInterfaceId is not null && row.Errors.Count == 0;
             var issues = visible ? addressIssues[row.TargetInterfaceId!].ToArray() : [];
             var blocking = visible ? blockingIssues[row.TargetInterfaceId!].ToArray() : [];
             return new InventoryPreviewRow(
                 row.Input.RowNumber, row.Match, row.Component?.Id, row.TargetInterfaceId,
-                row.Before is not null || (componentOnly && !row.AddsComponent) ? index.Values(row.Component!, row.Before) : null,
-                row.After is not null || componentOnly ? index.Values(row.Component!, row.After) : null,
+                row.Before is not null || (componentOnly && !row.AddsComponent) ? Values(index.Components[row.Component!.Id], row.Before, index.StoredNetworks) : NetworkValues(row, networkBefore),
+                row.After is not null || componentOnly ? Values(renamed.GetValueOrDefault(row.Component!.Id, row.Component), row.After, networks) : NetworkValues(row, networkAfter),
                 row.Input.Clear ?? [], row.AddsComponent, hasChanges,
                 hasChanges && row.Errors.Count == 0 && blocking.Length == 0, row.Errors, issues, blocking,
                 row.Component is null ? [] : wiring.ByEndpoint[Source(row)]
                     .Select(link => new InventoryConnection(link.Id, wiring.Connection(link))).ToArray());
         }).ToArray();
 
+        var changedNetworks = networks.Values.Where(network => network != index.StoredNetworks.GetValueOrDefault(network.Id))
+            .Select(network => network.Id).ToHashSet();
         var stateToken = Hash(new
         {
             current.Id,
             Rows = previewRows,
             Links = linkPreview,
             Decisions = decisions.Pending,
+            NetworkRecords = current.Networks.Where(network => changedNetworks.Contains(network.Id)),
+            NetworkMembers = current.Interfaces.Where(port => port.NetworkId is { } id && changedNetworks.Contains(id)),
+
             Records = candidates.Where(row => !row.Input.Skip).Select(row => new
             {
                 row.Before,
-                SubnetBefore = row.Before?.NetworkId is { } beforeId ? index.Networks[beforeId].Subnet : null,
-                SubnetAfter = row.After?.NetworkId is { } afterId ? index.Networks[afterId].Subnet : null,
+                SubnetBefore = row.Before?.NetworkId is { } beforeId ? index.StoredNetworks[beforeId].Subnet : null,
+                SubnetAfter = row.After?.NetworkId is { } afterId ? index.StoredNetworks.GetValueOrDefault(afterId)?.Subnet : null,
             })
         });
         var canApply = decisions.Pending.Count == 0 && blockers.Count == 0 &&
@@ -146,7 +165,7 @@ internal static partial class InventoryPreview
         return new(new(previewRows, stateToken, canApply, decisions.Pending, linkPreview), proposed);
     }
 
-    private static void ResolveRepeatedInterfaces(IEnumerable<Candidate> candidates)
+    private static void ResolveRepeatedInterfaces(IEnumerable<Candidate> candidates, PlanIndex index, InventoryDecisions decisions)
     {
         foreach (var group in candidates.Where(row => row.After is not null && row.Errors.Count == 0)
             .GroupBy(row => row.TargetInterfaceId))
@@ -154,18 +173,36 @@ internal static partial class InventoryPreview
             if (group.Count() < 2)
                 continue;
 
-            var networks = group.Where(row => NonBlank(row.Input.NetworkName) is not null ||
-                    NonBlank(row.Input.NetworkId) is not null || row.Input.Clear?.Contains("network") == true)
-                .Select(row => row.After!.NetworkId).Distinct().ToArray();
-            var addresses = group.Where(row => NonBlank(row.Input.Ipv4) is not null ||
-                    row.Input.Clear?.Contains("ipv4") == true)
-                .Select(row => row.After!.Ipv4).Distinct().ToArray();
+            var networkRows = group.Where(row => NonBlank(row.Input.NetworkName) is not null ||
+                NonBlank(row.Input.NetworkId) is not null || row.Input.Clear?.Contains("network") == true).ToArray();
+            var addressRows = group.Where(row => NonBlank(row.Input.Ipv4) is not null ||
+                row.Input.Clear?.Contains("ipv4") == true).ToArray();
+            var networks = networkRows.Select(row => row.After!.NetworkId).Distinct().ToArray();
+            var addresses = addressRows.Select(row => row.After!.Ipv4).Distinct().ToArray();
             var first = group.First();
             if (networks.Length > 1 || addresses.Length > 1)
             {
-                foreach (var row in group)
-                    row.Errors.Add(new("repeatedTarget",
-                        $"Rows for interface '{first.After!.Name}' on '{first.Component!.Name}' specify conflicting values. Correct or skip a row."));
+                var conflicts = new Dictionary<Candidate, List<string>>();
+                void Describe(Candidate row, string value)
+                {
+                    if (!conflicts.TryGetValue(row, out var values))
+                        conflicts[row] = values = [];
+                    values.Add(value);
+                }
+                if (networks.Length > 1)
+                    foreach (var row in networkRows)
+                    {
+                        var name = NonBlank(row.Input.NetworkName) ??
+                            (row.After!.NetworkId is { } id ? index.StoredNetworks[id].Name : "clear membership");
+                        Describe(row, $"network {name}");
+                    }
+                if (addresses.Length > 1)
+                    foreach (var row in addressRows)
+                        Describe(row, $"IPv4 {row.After!.Ipv4 ?? "clear address"}");
+                var affected = conflicts.Keys.OrderBy(row => row.Input.RowNumber).ToArray();
+                var evidence = string.Join("; ", affected.Select(row => $"row {row.Input.RowNumber}: {string.Join(", ", conflicts[row])}"));
+                RequireCorrection(decisions, affected, "repeatedTarget", first.TargetInterfaceId!, "Review interface values",
+                    $"Rows for {first.Component!.Name} / {first.After!.Name} specify conflicting values ({evidence}).");
                 continue;
             }
 
@@ -204,7 +241,8 @@ internal static partial class InventoryPreview
         issues.SelectMany(issue => issue.Interfaces.Select(port => (port.InterfaceId, Issue: issue)))
             .ToLookup(item => item.InterfaceId, item => item.Issue);
 
-    private static Candidate Match(InventoryImportRow row, PlanIndex index, InventoryDecisions decisions)
+    private static Candidate Match(InventoryImportRow row, PlanIndex index, InventoryDecisions decisions,
+        Component? confirmedComponent = null, PlanInterface? confirmedPort = null)
     {
         var candidate = new Candidate(row);
         if (row.Skip)
@@ -213,14 +251,24 @@ internal static partial class InventoryPreview
             return candidate;
         }
 
-        if (NonBlank(row.NetworkSubnet) is not null)
-            return candidate.Fail("unsupportedFields", "Inventory import does not yet support Network subnet.");
-
         var componentId = NonBlank(row.ComponentId);
         var interfaceId = NonBlank(row.InterfaceId);
         var componentName = NonBlank(row.ComponentName);
         var interfaceName = NonBlank(row.InterfaceName);
-        var component = componentId is null ? null : index.Components.GetValueOrDefault(componentId);
+        if (componentId is null && interfaceId is null && componentName is null && interfaceName is null &&
+            NonBlank(row.ComponentType) is null && NonBlank(row.Ipv4) is null && row.Clear is not { Count: > 0 } &&
+            (NonBlank(row.NetworkName) is not null || NonBlank(row.NetworkId) is not null))
+        {
+            if (NonBlank(row.LinkPartner) is not null || NonBlank(row.PartnerPort) is not null ||
+                NonBlank(row.ConnectionType) is not null || NonBlank(row.LinkProtocol) is not null)
+                return candidate.Fail("missingName", "Provide the component name for this link.");
+            candidate.NetworkOnly = true;
+            candidate.StandaloneNetworkId = ResolveNetwork(candidate, index, decisions, null);
+            if (candidate.NetworkId is { } matched)
+                candidate.Match = index.StoredNetworks.ContainsKey(matched) ? "name" : "addition";
+            return candidate;
+        }
+        var component = confirmedComponent ?? (componentId is null ? null : index.Components.GetValueOrDefault(componentId));
         if (componentId is not null && component is null)
             return candidate.Fail("unknownComponentId", "The component ID is not in this plan.");
 
@@ -266,13 +314,14 @@ internal static partial class InventoryPreview
             }
         }
 
+        port = confirmedPort ?? port;
         candidate.AddsComponent = component is null;
         component ??= index.NewComponent(componentName!);
         candidate.Component = component;
         if (interfaceName is null && port is null)
         {
             if (NonBlank(row.NetworkName) is not null || NonBlank(row.NetworkId) is not null ||
-                NonBlank(row.Ipv4) is not null || row.Clear is { Count: > 0 })
+                NonBlank(row.Ipv4) is not null || NonBlank(row.NetworkSubnet) is not null || row.Clear is { Count: > 0 })
                 return candidate.Fail("missingInterface", "Provide the interface name to assign a network or IPv4 address.");
             candidate.Match = candidate.AddsComponent ? "addition" : "name";
             return candidate;
@@ -285,28 +334,9 @@ internal static partial class InventoryPreview
         if (clear.Any(field => field is not ("network" or "ipv4")))
             return candidate.Fail("unknownClearField", "Only network membership and IPv4 can be cleared.");
 
-        var networkId = port?.NetworkId;
-        var networkName = NonBlank(row.NetworkName);
-        if (clear.Contains("network"))
-            networkId = null;
-        else if (NonBlank(row.NetworkId) is { } requestedId)
-        {
-            if (!index.Networks.TryGetValue(requestedId, out var network))
-                return candidate.Fail("unknownNetworkId", "The network ID is not in this plan.");
-            if (networkName is not null && !Names.Equals(network.Name.Trim(), networkName))
-                return candidate.Fail("inconsistentIds",
-                    "Network ID and Network identify different networks. Correct or ignore one of those columns.");
-            networkId = requestedId;
-        }
-        else if (networkName is not null)
-        {
-            var networks = index.NetworksByName[networkName].Take(2).ToArray();
-            if (networks.Length == 0)
-                return candidate.Fail("unknownNetwork", "Choose an existing network or clear network membership.");
-            if (networks.Length > 1)
-                return candidate.Fail("ambiguousNetwork", $"Network name '{networkName}' matches multiple networks in plan '{index.Plan.Name}'. Choose its network ID.");
-            networkId = networks[0].Id;
-        }
+        var networkId = ResolveNetwork(candidate, index, decisions, port?.NetworkId);
+        if (candidate.Errors.Count > 0)
+            return candidate;
 
         var ipv4 = clear.Contains("ipv4") ? null : NonBlank(row.Ipv4) ?? port?.Ipv4;
         candidate.After = port is { } existing
@@ -353,6 +383,9 @@ internal static partial class InventoryPreview
         public Component? Component { get; set; }
         public PlanInterface? Before { get; set; }
         public PlanInterface? After { get; set; }
+        public bool NetworkOnly { get; set; }
+        public string? StandaloneNetworkId { get; set; }
+        public string? NetworkId => StandaloneNetworkId ?? After?.NetworkId;
         public string? TargetInterfaceId { get; set; }
         public bool AddsComponent { get; set; }
         public List<InventoryRowError> Errors { get; } = [];
@@ -369,14 +402,22 @@ internal static partial class InventoryPreview
         public Plan Plan => plan;
         public Dictionary<string, Component> Components { get; } = plan.Components.ToDictionary(component => component.Id);
         public Dictionary<string, PlanInterface> Interfaces { get; } = plan.Interfaces.ToDictionary(port => port.Id);
-        public Dictionary<string, PlanNetwork> Networks { get; } = plan.Networks.ToDictionary(network => network.Id);
+        public Dictionary<string, PlanNetwork> StoredNetworks { get; } = plan.Networks.ToDictionary(network => network.Id);
         public ILookup<string, Component> ComponentsByName { get; } = plan.Components.ToLookup(component => component.Name, Names);
         public ILookup<string, PlanInterface> InterfacesByComponent { get; } = plan.Interfaces.ToLookup(port => port.ComponentId);
         public ILookup<string, PlanNetwork> NetworksByName { get; } = plan.Networks.ToLookup(network => network.Name, Names);
 
-        public InventoryValues Values(Component component, PlanInterface? port) => new(
-            component.Name, component.Type, port?.Name ?? "", port?.NetworkId,
-            port?.NetworkId is { } networkId ? Networks[networkId].Name : null, port?.Ipv4);
+        public Dictionary<string, PlanNetwork> NewNetworks { get; } = new(Names);
+
+        public PlanNetwork NewNetwork(string name)
+        {
+            if (!NewNetworks.TryGetValue(name, out var network))
+            {
+                network = new(AvailableId("network", "", name.ToUpperInvariant(), StoredNetworks.ContainsKey), name);
+                NewNetworks.Add(name, network);
+            }
+            return network;
+        }
 
         public Component NewComponent(string name) =>
             new(AvailableId("component", name.ToUpperInvariant(), "", Components.ContainsKey), name, "Other");
