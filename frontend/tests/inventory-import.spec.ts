@@ -341,6 +341,39 @@ test("reviews table selections before bulk editing and reconfirms a stale change
   await expect(page.getByRole("button", { name: "Undo import" })).toHaveCount(0)
 })
 
+test("correcting a network-only subnet shows both network values and restores the old subnet on undo", async ({
+  page,
+}) => {
+  const path = "/api/plans/" + (await openInventory(page))
+  const dialog = await previewRows(page, ",,,Packaging,10.0.0.0/8,,,,,")
+  await expect(
+    dialog.getByRole("heading", { name: "Review network subnet" })
+  ).toBeVisible()
+  await expect(dialog.getByText(/192\.168\.1\.10 on Filler/)).toBeVisible()
+  await dialog.getByRole("radio", { name: "Correct values" }).check()
+  await dialog
+    .getByRole("textbox", { name: "Network subnet" })
+    .fill("192.168.1.0/24")
+  await dialog.getByRole("button", { name: "Next" }).click()
+  await dialog.getByText("Review rows", { exact: true }).click()
+  await expect(dialog.getByRole("group", { name: "After" })).toContainText(
+    "192.168.1.0/24"
+  )
+  await dialog.getByRole("button", { name: "Apply import" }).click()
+  await expect(dialog).toBeHidden()
+  const saved: Plan = await (await page.request.get(path)).json()
+  expect(saved.networks.find((n) => n.id === "pack")?.subnet).toBe(
+    "192.168.1.0/24"
+  )
+  await page.getByRole("button", { name: "Undo import" }).click()
+  await expect
+    .poll(async () => {
+      const restored: Plan = await (await page.request.get(path)).json()
+      return restored.networks.find((n) => n.id === "pack")?.subnet
+    })
+    .toBeNull()
+})
+
 test("confirms grouped component and port renames before applying and undoing them", async ({
   page,
 }) => {

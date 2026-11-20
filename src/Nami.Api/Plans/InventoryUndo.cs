@@ -12,6 +12,7 @@ internal sealed record InventoryUndoReceipt(
     IReadOnlyDictionary<string, string> AddedComponents,
     IReadOnlyList<AddressConflictApproval> PreviousConflicts,
     IReadOnlyList<InventoryRecordUndo<PlanLink>>? Links = null,
+    IReadOnlyList<InventoryRecordUndo<PlanNetwork>>? Networks = null,
     IReadOnlyList<InventoryRecordUndo<Component>>? ChangedComponents = null)
 {
     public static InventoryUndoReceipt Create(Plan before, Plan after)
@@ -21,14 +22,19 @@ internal sealed record InventoryUndoReceipt(
         var changedComponents = components.Where(change => change.Before is not null).ToArray();
         var interfaces = InventoryRecordUndo<PlanInterface>.Capture(before.Interfaces, after.Interfaces, port => port.Id);
         var links = InventoryRecordUndo<PlanLink>.Capture(before.Links, after.Links, link => link.Id);
+        var networks = InventoryRecordUndo<PlanNetwork>.Capture(before.Networks, after.Networks, network => network.Id);
         var affected = interfaces.Select(port => port.Id).ToHashSet();
         var previousConflicts = ConflictApprovals(before)
             .Where(conflict => conflict.InterfaceIds.Any(affected.Contains)).ToArray();
-        return new(Guid.NewGuid().ToString(), interfaces, addedComponents, previousConflicts, links, changedComponents);
+        return new(Guid.NewGuid().ToString(), interfaces, addedComponents, previousConflicts, links, networks, changedComponents);
     }
 
     public InventoryUndoReview Review(Plan current)
     {
+        var networkChanges = Networks ?? [];
+        if (InventoryRecordUndo<PlanNetwork>.IsStale(networkChanges, current.Networks, network => network.Id))
+            return Unavailable("An affected network changed after import.");
+        var restoredNetworks = InventoryRecordUndo<PlanNetwork>.Restore(networkChanges, current.Networks, network => network.Id);
         var linkChanges = Links ?? [];
         var components = current.Components.ToDictionary(component => component.Id);
         var componentChanges = ChangedComponents ?? [];
@@ -62,12 +68,17 @@ internal sealed record InventoryUndoReceipt(
 
         var proposed = current with
         {
+            Networks = restoredNetworks,
             Links = restoredLinks,
             Components = InventoryRecordUndo<Component>.Restore(componentChanges, current.Components, component => component.Id)
                 .Where(component => !AddedComponents.ContainsKey(component.Id)).ToArray(),
             Interfaces = current.Interfaces.Where(port => !removedPorts.Contains(port.Id))
                 .Select(port => restore.GetValueOrDefault(port.Id, port)).ToArray()
         };
+        var addedNetworks = networkChanges.Where(change => change.Before is null).Select(change => change.Id).ToHashSet();
+        if (proposed.Interfaces.Any(port => port.NetworkId is { } id && addedNetworks.Contains(id)))
+            return Unavailable("A later interface assignment references an imported network.");
+
         try
         {
             InventoryNames.Validate(proposed, current);

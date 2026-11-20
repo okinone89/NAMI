@@ -96,7 +96,7 @@ internal static partial class InventoryPreview
             .OrderBy(link => link.Id, StringComparer.Ordinal).ToArray();
         var ports = affected.OrderBy(port => port.Id, StringComparer.Ordinal).ToArray();
         var matches = evidence.Select(item =>
-            $"Row {item.Row.Input.RowNumber}: {index.Networks[item.Port.NetworkId!].Name}, {item.Port.Ipv4} matches {index.Components[item.Port.ComponentId].Name} / {item.Port.Name}.").Distinct();
+            $"Row {item.Row.Input.RowNumber}: {index.StoredNetworks[item.Port.NetworkId!].Name}, {item.Port.Ipv4} matches {index.Components[item.Port.ComponentId].Name} / {item.Port.Name}.").Distinct();
         var linkNames = links.Select(link => $"{Endpoint(link.Source)} ↔ {Endpoint(link.Target)}");
         var message = $"Does '{name}' rename an existing {kind}?\n" + string.Join("\n", matches) +
             "\nAffected ports: " + string.Join(", ", ports.Select(port => $"{index.Components[port.ComponentId].Name} / {port.Name}")) +
