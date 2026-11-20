@@ -460,3 +460,35 @@ test("correcting the partner and port to a later CSV row revalidates the connect
     ])
   )
 })
+
+test("confirms grouped component and port renames before applying and undoing them", async ({
+  page,
+}) => {
+  await openInventory(page)
+  const dialog = await previewRows(
+    page,
+    "Capper 2,Control,,Packaging,,192.168.1.20,,,,",
+    "Capper 2,LAN D,,,,,,,,"
+  )
+  const next = dialog.getByRole("button", { name: "Next" })
+  const rename = dialog.getByRole("radio", {
+    name: "Rename existing component",
+  })
+  await expect(rename).not.toBeChecked()
+  await expect(next).toBeDisabled()
+  await expect(dialog.getByRole("region", { name: "Row 3" })).toBeVisible()
+  await rename.check()
+  await next.click()
+  await dialog.getByRole("radio", { name: "Rename existing port" }).check()
+  await next.click()
+  await dialog.getByRole("button", { name: "Apply import" }).click()
+  const table = page.getByRole("table", { name: "Interfaces" })
+  await expect(
+    table.getByRole("row", { name: /Capper 2.*Control/ })
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Undo import" }).click()
+  await expect(
+    table.getByRole("row", { name: /Capper PLC.*LAN B/ })
+  ).toBeVisible()
+  await expect(table.getByRole("row", { name: /Capper 2/ })).toHaveCount(0)
+})

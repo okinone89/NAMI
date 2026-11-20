@@ -22,6 +22,30 @@ test.beforeEach(async ({ page }) => {
   expect(session.ok()).toBe(true)
 })
 
+test("an empty plan's exported CSV closes without a change or undo record", async ({
+  page,
+}) => {
+  const plan = await createPlan(page, "Empty inventory")
+  const path = "/api/plans/" + plan.id
+  const csv = await (await page.request.get(path + "/inventory.csv")).body()
+  const dialog = await openImport(page, plan)
+  await dialog.getByLabel("CSV file").setInputFiles({
+    name: "empty.csv",
+    mimeType: "text/csv",
+    buffer: csv,
+  })
+  await expect(
+    dialog.getByRole("button", { name: "Preview import" })
+  ).toBeVisible()
+  await dialog.getByRole("button", { name: "Preview import" }).click()
+  await expect(
+    dialog.getByRole("heading", { name: "No changes" })
+  ).toBeVisible()
+  await dialog.getByRole("button", { name: "Close", exact: true }).click()
+  expect(await (await page.request.get(path)).json()).toEqual(plan)
+  expect((await page.request.get(path + "/inventory/undo")).status()).toBe(204)
+})
+
 test("legacy files and incomplete pasted headers explain where to get the current format", async ({
   page,
 }) => {

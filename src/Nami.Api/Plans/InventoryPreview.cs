@@ -73,7 +73,7 @@ internal static partial class InventoryPreview
     private static readonly IEqualityComparer<string> Names = InventoryNames.Comparer;
 
     public static bool IsValid(InventoryPreviewRequest request) =>
-        request.Rows is { Count: > 0 } rows &&
+        request.Rows is { } rows &&
         rows.All(row => row is not null && row.RowNumber > 0) &&
         rows.Select(row => row.RowNumber).Distinct().Count() == rows.Count;
 
@@ -82,6 +82,7 @@ internal static partial class InventoryPreview
         var index = new PlanIndex(current);
         var decisions = new InventoryDecisions(request.Answers);
         var candidates = request.Rows!.Select(row => Match(row, index, decisions)).ToArray();
+        ResolveRenames(candidates, index, decisions);
         ResolveRepeatedInterfaces(candidates, index, decisions);
         ResolveNewComponents(candidates);
 
@@ -89,16 +90,20 @@ internal static partial class InventoryPreview
         var edits = candidates.Where(row => row.Component is not null && row.Errors.Count == 0).ToArray();
         var changes = edits.Where(row => row.Before != row.After).DistinctBy(row => row.TargetInterfaceId).ToArray();
         var byInterface = changes.ToDictionary(row => row.After!.Id, row => row.After!);
+        var renamed = edits.Where(row => !row.AddsComponent && row.Component != index.Components[row.Component!.Id])
+            .Select(row => row.Component!).DistinctBy(component => component.Id).ToDictionary(component => component.Id);
         var proposed = current with
         {
             Networks = networks.Values.ToArray(),
-            Components = current.Components.Concat(edits.Where(row => row.AddsComponent)
+            Components = current.Components.Select(component => renamed.GetValueOrDefault(component.Id, component))
+                .Concat(edits.Where(row => row.AddsComponent)
                 .Select(row => row.Component!).DistinctBy(component => component.Id)).ToArray(),
             Interfaces = current.Interfaces.Select(port => byInterface.GetValueOrDefault(port.Id, port))
                 .Concat(changes.Where(row => row.Before is null).Select(row => row.After!)).ToArray()
         };
 
-        var linkPreview = ResolveLinks(proposed, edits, index, decisions);
+        var pendingIdentity = candidates.Any(row => row.Errors.Any(error => error.Code is "possibleRename" or "conflictingRenames"));
+        var linkPreview = pendingIdentity ? [] : ResolveLinks(proposed, edits, index, decisions);
         var linkChanges = linkPreview.Where(link => link.Before != link.After).ToArray();
         var linksById = linkChanges.ToDictionary(link => link.After.Id, link => link.After);
         proposed = proposed with
@@ -118,6 +123,7 @@ internal static partial class InventoryPreview
             var networkBefore = networkId is null ? null : index.StoredNetworks.GetValueOrDefault(networkId);
             var networkAfter = networkId is null ? null : networks.GetValueOrDefault(networkId);
             var hasChanges = changedLinkRows.Contains(row.Input.RowNumber) || row.AddsComponent ||
+                (row.Component is not null && renamed.ContainsKey(row.Component.Id)) ||
                 (row.After is not null && row.Before != row.After) ||
                 (networkAfter is not null && networkBefore != networkAfter);
             var visible = row.TargetInterfaceId is not null && row.Errors.Count == 0;
@@ -125,8 +131,8 @@ internal static partial class InventoryPreview
             var blocking = visible ? blockingIssues[row.TargetInterfaceId!].ToArray() : [];
             return new InventoryPreviewRow(
                 row.Input.RowNumber, row.Match, row.Component?.Id, row.TargetInterfaceId,
-                row.Before is not null || (componentOnly && !row.AddsComponent) ? Values(row.Component!, row.Before, index.StoredNetworks) : NetworkValues(row, networkBefore),
-                row.After is not null || componentOnly ? Values(row.Component!, row.After, networks) : NetworkValues(row, networkAfter),
+                row.Before is not null || (componentOnly && !row.AddsComponent) ? Values(index.Components[row.Component!.Id], row.Before, index.StoredNetworks) : NetworkValues(row, networkBefore),
+                row.After is not null || componentOnly ? Values(renamed.GetValueOrDefault(row.Component!.Id, row.Component), row.After, networks) : NetworkValues(row, networkAfter),
                 row.Input.Clear ?? [], row.AddsComponent, hasChanges,
                 hasChanges && row.Errors.Count == 0 && blocking.Length == 0, row.Errors, issues, blocking);
         }).ToArray();
@@ -230,7 +236,8 @@ internal static partial class InventoryPreview
         issues.SelectMany(issue => issue.Interfaces.Select(port => (port.InterfaceId, Issue: issue)))
             .ToLookup(item => item.InterfaceId, item => item.Issue);
 
-    private static Candidate Match(InventoryImportRow row, PlanIndex index, InventoryDecisions decisions)
+    private static Candidate Match(InventoryImportRow row, PlanIndex index, InventoryDecisions decisions,
+        Component? confirmedComponent = null, PlanInterface? confirmedPort = null)
     {
         var candidate = new Candidate(row);
         if (row.Skip)
@@ -256,7 +263,7 @@ internal static partial class InventoryPreview
                 candidate.Match = index.StoredNetworks.ContainsKey(matched) ? "name" : "addition";
             return candidate;
         }
-        var component = componentId is null ? null : index.Components.GetValueOrDefault(componentId);
+        var component = confirmedComponent ?? (componentId is null ? null : index.Components.GetValueOrDefault(componentId));
         if (componentId is not null && component is null)
             return candidate.Fail("unknownComponentId", "The component ID is not in this plan.");
 
@@ -302,6 +309,7 @@ internal static partial class InventoryPreview
             }
         }
 
+        port = confirmedPort ?? port;
         candidate.AddsComponent = component is null;
         component ??= index.NewComponent(componentName!);
         candidate.Component = component;
