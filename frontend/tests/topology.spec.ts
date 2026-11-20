@@ -713,3 +713,25 @@ test("create from the library at zoom and connect an edited interface using a ne
   expect(plan.links).toHaveLength(1)
   expect(plan.links[0].lineType).toBe("elbow")
 })
+
+test("duplicate gives a component a free name when a copy already exists", async ({
+  page,
+}) => {
+  await openPlan(page, {
+    components: ["Switch", " SWITCH COPY "].map((name, index) => ({
+      id: String(index),
+      name,
+      type: "Switch",
+      position: { x: 30 + 240 * index, y: 40 },
+      hostId: null,
+    })),
+  })
+  const canvas = page.getByRole("region", { name: "Topology canvas" })
+  await canvas
+    .getByRole("button", { name: "Switch", exact: true })
+    .click({ button: "right" })
+  await page.getByRole("button", { name: "Duplicate", exact: true }).click()
+  await expect(
+    canvas.getByRole("button", { name: "Switch copy 2", exact: true })
+  ).toBeVisible()
+})
