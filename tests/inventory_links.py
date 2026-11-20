@@ -101,6 +101,45 @@ class InventoryLinks(unittest.TestCase):
         self.assertEqual(self.post("undo", {"importId": applied["undo"]["importId"]})[0], 409)
         self.assertEqual(request(self.address, self.path)[:2], (200, edited))
 
+    def test_unknown_or_skipped_partner_and_missing_new_type_block_before_writing(self):
+        row = {"rowNumber": 2, "interfaceId": "lan-a", "ipv4": "192.168.1.21", "connectionType": "Wired"}
+        for fields, extra in [
+            ({"linkPartner": "New switch"}, [{"rowNumber": 3, "componentName": "New switch", "skip": True}]),
+            ({"linkPartner": "Capper PLC", "partnerPort": "Missing port"}, []),
+            ({"linkPartner": "Capper PLC", "connectionType": ""}, []),
+            ({"linkPartner": "Capper PLC", "connectionType": "invented"}, []),
+        ]:
+            with self.subTest(fields=fields):
+                rows = [{**row, **fields}, *extra]
+                preview = self.preview(rows)
+                self.assertFalse(preview["canApply"])
+                self.assertEqual(preview["rows"][0]["after"]["ipv4"], "192.168.1.21")
+                self.assertTrue(preview["rows"][0]["errors"])
+                self.assertEqual(self.post("commit", {"rows": rows, "stateToken": preview["stateToken"]})[0], 409)
+                self.assertEqual(request(self.address, self.path)[:2], (200, self.plan))
+
+    def test_stale_metadata_requires_fresh_confirmation_and_retains_new_link_identity(self):
+        original = self.put({**self.plan, "links": [{
+            "id": "installed", "source": {"componentId": "plc-a", "interfaceId": "lan-a"},
+            "target": {"componentId": "plc-b"}, "medium": "wired", "protocol": "Protocol A",
+        }]})
+        rows = [
+            {"rowNumber": 2, "interfaceId": "lan-a", "linkPartner": "Capper PLC", "linkProtocol": "Protocol B"},
+            {"rowNumber": 3, "componentName": "Auxiliary", "linkPartner": "Capper PLC", "connectionType": "Virtual"},
+        ]
+        first = self.preview(rows)
+        original["links"][0]["medium"] = "wireless"
+        changed = self.put(original)
+        status, latest = self.post("commit", {"rows": rows, "stateToken": first["stateToken"]})
+        self.assertEqual(status, 409)
+        self.assertNotEqual(first["stateToken"], latest["stateToken"])
+        self.assertEqual([link["after"]["id"] for link in first["links"]],
+                         [link["after"]["id"] for link in latest["links"]])
+        self.assertEqual(request(self.address, self.path)[:2], (200, changed))
+        status, saved = self.post("commit", {"rows": rows, "stateToken": latest["stateToken"]})
+        self.assertEqual(status, 200, saved)
+        self.assertEqual(saved["plan"]["links"][0], {**changed["links"][0], "protocol": "Protocol B"})
+
     def test_export_lists_each_partner_and_preserves_component_level_ends(self):
         filler = {"componentId": "plc-a", "interfaceId": "lan-a"}
         capper = {"componentId": "plc-b"}

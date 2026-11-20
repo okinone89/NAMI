@@ -94,7 +94,7 @@ internal static partial class InventoryPreview
                 .Concat(changes.Where(row => row.Before is null).Select(row => row.After!)).ToArray()
         };
 
-        var linkPreview = ResolveLinks(proposed, edits);
+        var linkPreview = ResolveLinks(proposed, edits, index, decisions);
         var linkChanges = linkPreview.Where(link => link.Before != link.After).ToArray();
         var linksById = linkChanges.ToDictionary(link => link.After.Id, link => link.After);
         proposed = proposed with
@@ -238,13 +238,9 @@ internal static partial class InventoryPreview
                 var matches = index.ComponentsByName[componentName!].ToArray();
                 if (matches.Length > 1)
                 {
-                    var message = $"Choose which component named '{matches[0].Name.Trim()}' in plan '{index.Plan.Name}' these rows describe.";
-                    var id = decisions.Choose("component", index.Plan.Id, componentName!, "Choose a component",
-                        message, row.RowNumber, matches.Select(item =>
-                            new InventoryDecisionChoice(item.Id, $"{item.Name.Trim()} ({item.Type}, {item.Id})")));
-                    if (id is null)
-                        return candidate.Fail("ambiguousMatch", message);
-                    component = index.Components[id];
+                    component = ChooseComponent(matches, index, candidate, decisions);
+                    if (component is null)
+                        return candidate;
                 }
                 else
                     component = matches.SingleOrDefault();
@@ -255,13 +251,9 @@ internal static partial class InventoryPreview
                     .Where(item => Names.Equals(item.Name, interfaceName)).ToArray();
                 if (matches.Length > 1)
                 {
-                    var message = $"Choose which interface named '{matches[0].Name.Trim()}' on component '{component.Name.Trim()}' these rows describe.";
-                    var id = decisions.Choose("interface", component.Id, interfaceName!, "Choose an interface",
-                        message, row.RowNumber, matches.Select(item =>
-                            new InventoryDecisionChoice(item.Id, $"{item.Name.Trim()} ({item.Ipv4 ?? "no IPv4"}, {item.Id})")));
-                    if (id is null)
-                        return candidate.Fail("ambiguousMatch", message);
-                    port = index.Interfaces[id];
+                    port = ChooseInterface(matches, component, index, candidate, decisions);
+                    if (port is null)
+                        return candidate;
                 }
                 else
                     port = matches.SingleOrDefault();
@@ -316,6 +308,31 @@ internal static partial class InventoryPreview
             : new PlanInterface(candidate.TargetInterfaceId, component.Id,
                 interfaceName!, networkId, ipv4);
         return candidate;
+    }
+
+    private static Component? ChooseComponent(Component[] matches, PlanIndex index, Candidate row, InventoryDecisions decisions)
+    {
+        var name = matches[0].Name.Trim();
+        var message = $"Choose which component named '{name}' in plan '{index.Plan.Name}' these rows describe.";
+        var choices = matches.Select(item => index.Components.GetValueOrDefault(item.Id, item))
+            .Select(item => new InventoryDecisionChoice(item.Id, $"{item.Name.Trim()} ({item.Type}, {item.Id})"));
+        var id = decisions.Choose("component", index.Plan.Id, name, "Choose a component", message, row.Input.RowNumber, choices);
+        if (id is null)
+            row.Fail("ambiguousMatch", message);
+        return matches.SingleOrDefault(item => item.Id == id);
+    }
+
+    private static PlanInterface? ChooseInterface(PlanInterface[] matches, Component owner, PlanIndex index,
+        Candidate row, InventoryDecisions decisions)
+    {
+        var name = matches[0].Name.Trim();
+        var message = $"Choose which interface named '{name}' on component '{owner.Name.Trim()}' these rows describe.";
+        var choices = matches.Select(item => index.Interfaces.GetValueOrDefault(item.Id, item))
+            .Select(item => new InventoryDecisionChoice(item.Id, $"{item.Name.Trim()} ({item.Ipv4 ?? "no IPv4"}, {item.Id})"));
+        var id = decisions.Choose("interface", owner.Id, name, "Choose an interface", message, row.Input.RowNumber, choices);
+        if (id is null)
+            row.Fail("ambiguousMatch", message);
+        return matches.SingleOrDefault(item => item.Id == id);
     }
 
     private static string? NonBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

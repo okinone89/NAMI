@@ -121,3 +121,40 @@ test("exported equipment imports into an empty plan and matches reordered pasted
       .and(page.locator(":enabled"))
   ).toHaveCount(0)
 })
+
+test("reciprocal cabling and consistent metadata edits go directly to the summary", async ({
+  page,
+}) => {
+  const plan = await createPlan(page, "Line wiring")
+  const rows = [
+    "Component,Interface,Component type,Network,Network subnet,IPv4,Link partner,Partner port,Connection type,Link protocol",
+    "Controller,X1,PLC,,,,Switch,P8,,EtherCAT",
+    "Switch,P8,Switch,,,,Controller,X1,FO,",
+  ]
+  async function apply(source: string[]) {
+    const dialog = await openImport(page, plan)
+    await dialog.getByLabel("Spreadsheet rows").fill(source.join("\n"))
+    await dialog.getByRole("button", { name: "Load pasted rows" }).click()
+    await dialog.getByRole("button", { name: "Preview import" }).click()
+    await expect(
+      dialog.getByRole("heading", { name: "Import summary" })
+    ).toBeVisible()
+    await dialog.getByRole("button", { name: "Apply import" }).click()
+    await expect(dialog).toBeHidden()
+    const response = await page.request.get(`/api/plans/${plan.id}`)
+    expect(response.ok()).toBe(true)
+    return (await response.json()) as Plan
+  }
+  const built = await apply(rows)
+  expect(built.links).toHaveLength(1)
+  expect(built.links[0]).toMatchObject({
+    medium: "fiberOptic",
+    protocol: "EtherCAT",
+  })
+  const edited = await apply([
+    rows[0],
+    "Switch,P8,Switch,,,,Controller,X1,Wired,",
+    "Controller,X1,PLC,,,,Switch,P8,Wired,",
+  ])
+  expect(edited.links).toEqual([{ ...built.links[0], medium: "wired" }])
+})

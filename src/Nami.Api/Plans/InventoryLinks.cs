@@ -16,9 +16,10 @@ internal static partial class InventoryPreview
         }
     }
 
-    private static IReadOnlyList<InventoryLinkPreview> ResolveLinks(Plan inventory, Candidate[] rows)
+    private static IReadOnlyList<InventoryLinkPreview> ResolveLinks(Plan inventory, Candidate[] rows,
+        PlanIndex index, InventoryDecisions decisions)
     {
-        var components = inventory.Components.ToLookup(component => component.Name.Trim(), Names);
+        var components = inventory.Components.ToLookup(component => component.Name, Names);
         var ports = inventory.Interfaces.ToLookup(port => port.ComponentId);
         var declarations = new Dictionary<EndpointPair, List<Candidate>>();
         foreach (var row in rows)
@@ -32,23 +33,28 @@ internal static partial class InventoryPreview
                 continue;
             }
 
-            var matches = components[partnerName].Take(2).ToArray();
-            if (matches.Length != 1)
+            var matches = components[partnerName].ToArray();
+            if (matches.Length == 0)
             {
                 row.Fail("unknownLinkPartner", $"Link partner '{partnerName}' must identify one selected or existing component.");
                 continue;
             }
-            var partner = new LinkEndpoint(matches[0].Id);
+            var owner = matches.Length == 1 ? matches[0] : ChooseComponent(matches, index, row, decisions);
+            if (owner is null)
+                continue;
+            var partner = new LinkEndpoint(owner.Id);
             if (portName is not null)
             {
-                var matchedPorts = ports[partner.ComponentId].Where(port => Names.Equals(port.Name.Trim(), portName))
-                    .Take(2).ToArray();
-                if (matchedPorts.Length != 1)
+                var matchedPorts = ports[partner.ComponentId].Where(port => Names.Equals(port.Name, portName)).ToArray();
+                if (matchedPorts.Length == 0)
                 {
                     row.Fail("unknownPartnerPort", $"Partner port '{partnerName} / {portName}' must identify one selected or existing interface.");
                     continue;
                 }
-                partner = partner with { InterfaceId = matchedPorts[0].Id };
+                var port = matchedPorts.Length == 1 ? matchedPorts[0] : ChooseInterface(matchedPorts, owner, index, row, decisions);
+                if (port is null)
+                    continue;
+                partner = partner with { InterfaceId = port.Id };
             }
 
             var pair = EndpointPair.Of(new(row.Component!.Id, row.TargetInterfaceId), partner);
