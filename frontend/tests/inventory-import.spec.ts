@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase, workspaceAction } from "./workspace-settings"
+import { editorPassword, workspaceAction } from "./workspace-settings"
 
 async function openInventory(page: Page) {
   const session = await page.request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const created = await page.request.post("/api/plans", {
@@ -239,7 +239,7 @@ test("a stale apply reopens the new conflict and preserves unrelated answers thr
 
   // A second editor assigns the previously available address during review.
   await request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   const current: Plan = await (await request.get(path)).json()
   current.interfaces.push({

@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase, expectReadOnly } from "./workspace-settings"
+import { editorPassword, expectReadOnly } from "./workspace-settings"
 
 async function openAllocationPlan(page: Page, subnet: string | null = null) {
   const session = await page.request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const response = await page.request.post("/api/plans", {
@@ -306,7 +306,7 @@ test("batch assignment shows exhaustion and requires confirmation of a refreshed
   await expect(dialog.getByText("192.168.1.31", { exact: true })).toBeVisible()
 
   const session = await request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const saved: Plan = await configured.json()

@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Locator } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
 import {
-  editorPassphrase,
+  editorPassword,
   signOut,
   unlockEditing,
   workspaceAction,
@@ -16,7 +16,7 @@ test("switch views while loading and browse the empty plan", async ({
     baseURL,
   })
   const session = await visitor.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const created = await visitor.post("/api/plans", {
@@ -85,7 +85,7 @@ test("create the first plan from either empty view", async ({ page }, info) => {
   ).toBeVisible()
   const createButton = table.getByRole("button", { name: "Create plan" })
   await createButton.click()
-  await unlock.getByLabel("Shared editor passphrase").fill(editorPassphrase)
+  await unlock.getByLabel("Shared editor password").fill(editorPassword)
   await unlock.getByRole("button", { name: "Unlock editing" }).click()
   const create = page.getByRole("dialog", { name: "New plan" })
   await create.getByRole("button", { name: "Cancel" }).click()
@@ -187,7 +187,7 @@ test("read import and export guidance in either view without unlocking editing",
 
 async function createUnlockedPlan(page: Page, name: string) {
   const session = await page.request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const created = await page.request.post("/api/plans", { data: { name } })

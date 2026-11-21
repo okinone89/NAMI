@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test"
-export const editorPassphrase = "playwright-only editor passphrase"
+export const editorPassword = "playwright-only editor password"
 
 export async function workspaceAction(page: Page, name: string) {
   await page.getByRole("button", { name: "Workspace", exact: true }).click()
@@ -9,7 +9,7 @@ export async function workspaceAction(page: Page, name: string) {
 export async function unlockEditing(page: Page) {
   await page.getByRole("button", { name: "View mode", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Unlock editing" })
-  await dialog.getByLabel("Shared editor passphrase").fill(editorPassphrase)
+  await dialog.getByLabel("Shared editor password").fill(editorPassword)
   await dialog.getByRole("button", { name: "Unlock editing" }).click()
   await expect(
     page.getByRole("button", { name: "Edit mode", exact: true })

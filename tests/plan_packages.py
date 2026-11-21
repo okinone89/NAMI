@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from editor_sessions import PASSPHRASE, request, settings_for
+from editor_sessions import PASSWORD, request, settings_for
 from plan_api import unlock
 from startup import postgres_settings, running_api
 
@@ -32,7 +32,7 @@ class PlanPackages(unittest.TestCase):
                     "name": "Packaging cell", "networks": [], "components": [],
                     "interfaces": [], "links": []
                 }})
-                for secret in (PASSPHRASE, cookie, plan["id"], str(directory)):
+                for secret in (PASSWORD, cookie, plan["id"], str(directory)):
                     self.assertNotIn(secret, str(package))
 
     def test_import_creates_an_independent_plan_with_a_duplicate_name(self):

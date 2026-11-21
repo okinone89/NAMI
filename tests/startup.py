@@ -13,6 +13,7 @@ from urllib.request import urlopen
 
 API = Path(__file__).resolve().parents[1] / "src/Nami.Api"
 API_DLL = API / "bin/Debug/net10.0/Nami.Api.dll"
+LATEST_SCHEMA_VERSION = "5"
 
 
 @contextmanager
@@ -75,7 +76,7 @@ def run_plan_test(settings, phase, *arguments):
 class DatabaseStartup(unittest.TestCase):
     def exercise(self, directory, settings, sql):
         check_startup(directory, settings)
-        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "4")
+        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), LATEST_SCHEMA_VERSION)
         plan_ids = run_plan_test(settings, "create").splitlines()
         check_startup(directory, settings)
         run_plan_test(settings, "reload", *plan_ids)
@@ -83,6 +84,7 @@ class DatabaseStartup(unittest.TestCase):
         run_plan_test(settings, "verify-edits", *plan_ids)
 
         # Restore the original v1 schema in this disposable database.
+        sql("DROP TABLE editor_password")
         sql("DROP TABLE plans")
         sql("DROP TABLE nami_migrations")
         sql("CREATE TABLE nami_migrations (version INTEGER PRIMARY KEY)")
@@ -90,7 +92,7 @@ class DatabaseStartup(unittest.TestCase):
         sql("CREATE TABLE plans (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL)")
         sql("INSERT INTO plans VALUES ('line-1', 'Assembly')")
         check_startup(directory, settings)
-        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), "4")
+        self.assertEqual(sql("SELECT max(version) FROM nami_migrations"), LATEST_SCHEMA_VERSION)
         self.assertEqual(sql("SELECT name FROM plans WHERE id='line-1'"), "Assembly")
         run_plan_test(settings, "legacy", "line-1")
         sql("DROP INDEX plans_name_idx")  # The upgrade physically recreated the index.
@@ -214,7 +216,7 @@ class DatabaseSetup(unittest.TestCase):
                                         credentials)
             self.assertEqual(setup.returncode, 0, setup.stderr)
             self.assertNotIn(password, self.saved.read_text())
-            self.assertEqual(sql('SELECT max(version) FROM "NAMI, Plans".nami_migrations'), "4")
+            self.assertEqual(sql('SELECT max(version) FROM "NAMI, Plans".nami_migrations'), LATEST_SCHEMA_VERSION)
             self.assertEqual(sql("SELECT to_regclass('public.plans') IS NULL"), "t")
             sql('INSERT INTO "NAMI, Plans".plans (id, name) VALUES (\'line-1\', \'Packaging\')')
             self.assertEqual(self.plans(credentials), [{"id": "line-1", "name": "Packaging"}])
@@ -222,7 +224,7 @@ class DatabaseSetup(unittest.TestCase):
             default_setup = self.setup_database(["2", str(self.content), "", "postgres", "setup_user", "", "y"],
                                                 credentials)
             self.assertEqual(default_setup.returncode, 0, default_setup.stderr)
-            self.assertEqual(sql("SELECT max(version) FROM nami.nami_migrations"), "4")
+            self.assertEqual(sql("SELECT max(version) FROM nami.nami_migrations"), LATEST_SCHEMA_VERSION)
             self.assertEqual(self.plans(credentials), [])
 
 

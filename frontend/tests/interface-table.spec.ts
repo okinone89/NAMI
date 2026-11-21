@@ -1,10 +1,10 @@
 import { expect, test, type APIRequestContext } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase, expectReadOnly } from "./workspace-settings"
+import { editorPassword, expectReadOnly } from "./workspace-settings"
 
 async function createInterfacePlan(request: APIRequestContext) {
   const session = await request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const created = await request.post("/api/plans", {

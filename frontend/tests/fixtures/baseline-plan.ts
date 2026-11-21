@@ -1,12 +1,12 @@
 import { expect, type APIRequestContext } from "@playwright/test"
 import type { Component, Plan, PlanLink } from "../../src/lib/plans"
-import { editorPassphrase } from "../workspace-settings"
+import { editorPassword } from "../workspace-settings"
 
 export const sharedMachineAddress = "192.168.1.10"
 
 export async function createBaselinePlan(request: APIRequestContext) {
   const session = await request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const created = await request.post("/api/plans", {

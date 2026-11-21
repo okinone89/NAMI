@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 export const sessionUrl = "/api/editor-session"
-export type EditorSession = { canEdit: boolean; expiresAt: string | null }
-export const readOnly: EditorSession = { canEdit: false, expiresAt: null }
+export const editorSetupUrl = `${sessionUrl}/setup`
+export type EditorSession = {
+  canEdit: boolean
+  expiresAt: string | null
+  setupRequired: boolean
+}
+export const readOnly: EditorSession = {
+  canEdit: false,
+  expiresAt: null,
+  setupRequired: false,
+}
 
 export function useEditorSession() {
-  const [session, setSession] = useState(readOnly)
+  const [session, setSession] = useState<EditorSession | null>(null)
+  const [checkFailed, setCheckFailed] = useState(false)
   const activeCheck = useRef<AbortController | null>(null)
 
   const refresh = useCallback(() => {
@@ -13,12 +23,23 @@ export function useEditorSession() {
     const check = new AbortController()
     activeCheck.current = check
     return fetch(sessionUrl, { signal: check.signal, cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : readOnly))
+      .then((response) => {
+        if (!response.ok) throw new Error("Editor session check failed")
+        return response.json() as Promise<EditorSession>
+      })
       .then((current) => {
-        if (!check.signal.aborted) setSession(current)
+        if (check.signal.aborted) return
+        setCheckFailed(false)
+        setSession(current)
       })
       .catch(() => {
-        if (!check.signal.aborted) setSession(readOnly)
+        if (check.signal.aborted) return
+        setCheckFailed(true)
+        setSession((previous) =>
+          previous?.canEdit
+            ? { ...previous, canEdit: false, expiresAt: null }
+            : previous
+        )
       })
   }, [])
 
@@ -33,7 +54,7 @@ export function useEditorSession() {
   }, [refresh])
 
   useEffect(() => {
-    if (!session.expiresAt) return
+    if (!session?.expiresAt) return
     const remaining = Date.parse(session.expiresAt) - Date.now()
     const timer = window.setTimeout(
       () => void refresh(),
@@ -44,8 +65,15 @@ export function useEditorSession() {
 
   function apply(next: EditorSession) {
     activeCheck.current?.abort()
+    setCheckFailed(false)
     setSession(next)
   }
 
-  return { canEdit: session.canEdit, apply, refresh }
+  return {
+    session,
+    canEdit: session?.canEdit ?? false,
+    checkFailed,
+    apply,
+    refresh,
+  }
 }

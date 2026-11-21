@@ -3,10 +3,12 @@
 param(
     [switch]$Dev,
     [switch]$Setup,
+    [switch]$ResetEditorPassword,
     [string]$Urls = $env:ASPNETCORE_URLS
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Setup -and $ResetEditorPassword) { throw 'Choose either -Setup or -ResetEditorPassword.' }
 if (-not $Urls) { $Urls = 'http://127.0.0.1:5080' }
 $environment = if ($Dev) { 'Development' } else { 'Production' }
 $configuration = if ($Dev) { 'Debug' } else { 'Release' }
@@ -17,8 +19,9 @@ Push-Location -LiteralPath $PSScriptRoot
 try {
     $env:ASPNETCORE_ENVIRONMENT = $environment
     $env:DOTNET_ENVIRONMENT = $environment
-    if ($Setup) {
-        & dotnet run --project src/Nami.Api --configuration $configuration --no-launch-profile -- --setup
+    if ($Setup -or $ResetEditorPassword) {
+        $command = if ($Setup) { '--setup' } else { '--reset-editor-password' }
+        & dotnet run --project src/Nami.Api --configuration $configuration --no-launch-profile -- $command
         exit $LASTEXITCODE
     }
 

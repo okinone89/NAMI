@@ -1,5 +1,4 @@
 import { defineConfig } from "@playwright/test"
-import { editorPassphrase } from "./tests/workspace-settings"
 
 const webPort = process.env.NAMI_TEST_WEB_PORT ?? "5174"
 const webOrigin = `http://127.0.0.1:${webPort}`
@@ -9,7 +8,6 @@ const apiServer = {
   command: "node tests/start-api.mjs",
   env: {
     NAMI_TEST_API_ORIGIN: webOrigin,
-    Editor__Passphrase: editorPassphrase,
   },
   url: `${webOrigin}/health`,
   timeout: 120_000,
@@ -18,6 +16,7 @@ const apiServer = {
 
 export default defineConfig({
   testDir: "./tests",
+  globalSetup: "./tests/setup-editor.ts",
   use: { baseURL: webOrigin },
   projects: [
     { name: "desktop", use: { viewport: { width: 1024, height: 768 } } },

@@ -44,7 +44,7 @@ test("a reader can reopen filtered views and download combined and per-network r
     ],
   }
   await page.route("**/api/editor-session", (r) =>
-    r.fulfill({ json: { canEdit: false, expiresAt: null } })
+    r.fulfill({ json: { canEdit: false, expiresAt: null, setupRequired: false } })
   )
   await page.route("**/api/plans", (r) =>
     r.fulfill({ json: [{ id: plan.id, name: plan.name }] })
@@ -103,7 +103,7 @@ test("selected networks start on fresh PDF pages and are remembered per plan", a
     links: [],
   }))
   await page.route("**/api/editor-session", (r) =>
-    r.fulfill({ json: { canEdit: false, expiresAt: null } })
+    r.fulfill({ json: { canEdit: false, expiresAt: null, setupRequired: false } })
   )
   await page.route("**/api/plans", (r) => r.fulfill({ json: plans }))
   for (const plan of plans)

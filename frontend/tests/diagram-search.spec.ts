@@ -1,12 +1,12 @@
 import { expect, test, type APIRequestContext } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase, expectReadOnly } from "./workspace-settings"
+import { editorPassword, expectReadOnly } from "./workspace-settings"
 
 type Topology = Pick<Plan, "networks" | "components" | "interfaces">
 
 async function createPlan(request: APIRequestContext, topology: Topology) {
   const session = await request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const created = await request.post("/api/plans", {
@@ -243,7 +243,7 @@ test("moving a component in its focused network keeps the new canvas position", 
 }) => {
   const planId = await createSearchPlan(request)
   const session = await page.request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   await page.goto(`/?plan=${planId}`)

@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase, signOut } from "./workspace-settings"
+import { editorPassword, signOut } from "./workspace-settings"
 
 async function openPlan(page: Page) {
   const session = await page.request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const created = await page.request.post("/api/plans", {

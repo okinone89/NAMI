@@ -1,73 +1,54 @@
 # NAMI
 
-NAMI is a self-hosted web app for planning industrial networks. Draw the connections between PLCs, operator panels, drives, servers, and virtual machines, then switch to a table to review the IPv4 address and protocol profile of each interface. Both views use the same plan.
+NAMI is a self-hosted web app for planning industrial networks. Draw the connections between PLCs, operator panels, drives, servers, and virtual machines. Review interface inventory, IPv4 addresses, and protocol profiles in a table. Both views use the same plan.
 
-![Network diagram of a cartoning line. The PLC connects the machine LAN to line services, where an edge server hosts a historian VM.](docs/screenshots/cartoning-line-diagram.png)
+[Quick start](#quick-start) · [Editor password](#set-or-reset-the-editor-password) · [Features](#features) · [User guide](docs/user-guide/README.md) · [Download PDF guide](docs/user-guide/NAMI-User-Guide.pdf) · [Development](#development)
 
-[Installation](#installation) · [Your first plan](#your-first-plan) · [Features](#features) · [Development](#development) · [Running a shared instance](#running-a-shared-instance)
+![Cartoning line diagram with two networks, a dual-interface PLC, and an edge server enclosing its historian VM.](docs/screenshots/cartoning-line-diagram.png)
 
-## Installation
+## Quick start
 
-For a local installation from source, use Git, the .NET 10 **SDK**, Node.js 24 with npm, and either PowerShell on Windows or a POSIX shell on macOS or Linux. SQLite is the default database. [Download .NET 10](https://dotnet.microsoft.com/download/dotnet/10.0) · [Download Node.js](https://nodejs.org/en/download)
+Install Git, the .NET 10 **SDK**, and Node.js 24 with npm. Clone the repository from a terminal.
 
 ```sh
 git clone https://github.com/okinone89/NAMI.git
 cd NAMI
 ```
 
-On macOS or Linux, start development mode with `./run --dev`.
+| Task | macOS or Linux | Windows PowerShell |
+| --- | --- | --- |
+| Start local development mode | `./run --dev` | `.\run.ps1 -Dev` |
+| Start in production mode | `./run` | `.\run.ps1` |
+| Choose and prepare a database | `./run --setup` | `.\run.ps1 -Setup` |
 
-### Windows
+The launcher builds the frontend and serves it with the API. Open [NAMI on localhost](http://127.0.0.1:5080). On the first visit, create and confirm a shared editor password to enter Edit mode. Choose **Workspace → New plan** to start. See the [first-plan walkthrough](docs/user-guide/01-get-started.md#build-your-first-plan) for a worked example.
 
-From PowerShell in the repository root, run development mode with the local editor passphrase.
+SQLite is the default and saves plans to `src/Nami.Api/data/nami.db`. The interactive setup supports another SQLite file or a PostgreSQL database and saves its settings after migrations succeed. Restart NAMI to use the saved target. For shared hosting, editor configuration, readiness, and backups, see [installation and maintenance](docs/user-guide/06-installation-and-maintenance.md).
 
-```powershell
-.\run.ps1 -Dev
-```
+### Set or reset the editor password
 
-For production, run the same launcher without `-Dev`. It starts a Release build in the Production environment. To enable editing, supply `Editor__Passphrase` through the service environment before starting. With the setting unset, the site opens read-only.
+The first visitor to a database without an editor password creates it in the browser. Use at least 15 characters. NAMI stores a salted hash in SQLite or PostgreSQL so the password works after a restart. Once setup is complete, visitors can browse in **View mode** and use the password to unlock editing. Use HTTPS on shared installations.
 
-```powershell
-.\run.ps1
-```
+To change the password, unlock editing and select **Workspace → Change editor password**. Enter the current password, then enter the new password twice. Other editors will need the new password to unlock editing again.
 
-Both modes listen on loopback at port 5080 by default. Use `-Urls http://127.0.0.1:5082` to choose another address, or set `ASPNETCORE_URLS`. For a shared installation, see [Running a shared instance](#running-a-shared-instance). Check readiness from another PowerShell window with `Invoke-RestMethod http://127.0.0.1:5080/health`.
+To reset it, stop NAMI and run the command for your OS from the repository root.
 
-### Open the workspace
+| macOS or Linux | Windows PowerShell |
+| --- | --- |
+| `./run --reset-editor-password` | `.\run.ps1 -ResetEditorPassword` |
 
-The launcher installs frontend dependencies as needed, builds the workspace, and starts the app and API together. Open [NAMI on localhost](http://127.0.0.1:5080). A fresh database shows **No plans yet**. Click **View mode** in the toolbar and enter `nami-local-editor`, the default passphrase for local development.
-
-By default, plans are saved in `src/Nami.Api/data/nami.db` and are available the next time you run the launcher. See [Database setup](#database-setup) to choose another SQLite file or PostgreSQL. Press Ctrl+C to stop NAMI. If port 5080 is busy, run `./run --dev --urls http://127.0.0.1:5082` and open port 5082 instead.
-
-## Your first plan
-
-1. Choose **Workspace → New plan**, name it `Cartoning line`, and select **Create plan**.
-2. Choose **Add network**, enter `Machine LAN` with network address `192.0.2.0` and subnet mask `255.255.255.0`, then select **Save network**.
-3. Choose **Add → Add component** in the diagram, name it `Cartoner PLC`, and set its type to `PLC`. Use **Add interface** to add `X1`, assign it to `Machine LAN`, enter `192.0.2.10`, and select **Save component**. Repeat for an operator panel with address `192.0.2.20`.
-4. In **Diagram**, choose **Add → Add link**, select the source and target components and their interfaces, choose **Wired**, and select **Save link**. Drag the components into position.
-5. Switch to **Table** and filter for `192.0.2.10` to find the PLC interface. To share the drawing and address list together, choose **Workspace → Export PDF**, select **Diagram and table** and **Whole plan**, then **Download PDF**.
+Restart NAMI and open it in a browser to create the new password. [Installation and maintenance](docs/user-guide/06-installation-and-maintenance.md#set-or-reset-the-editor-password)
 
 ## Features
 
-**Topology diagrams.** Place devices from the component library, group VMs with their host, and distinguish wired, fiber optic, wireless, and virtual links. Select one or more networks to focus the diagram, or search for an address to find the component that owns it.
+- **Draw and edit topology.** Place equipment from the industrial component library, upload a custom icon, or use a labeled shape. Group VMs with their host and distinguish wired, fiber-optic, wireless, and virtual links. Use canvas context actions to connect from a port, duplicate equipment, or edit wiring. Select multiple components to move, update, duplicate, or delete them together. Duplication supports network remapping or fresh IPv4 allocation. [Topology guide](docs/user-guide/02-topology.md)
+- **Plan IPv4 and record protocols.** Give each network its own identity, subnet, and color. Check duplicate and out-of-subnet addresses. Use allocation pools and exclusions for individual suggestions, reviewed batch assignment, or automatic assignment during editing. Record PROFINET, EtherNet/IP, and Modbus TCP profiles on interfaces. [IPv4 and protocols guide](docs/user-guide/03-addressing-and-protocols.md)
+- **Browse and edit inventory.** Search and filter across both views, sort the interface table, edit addresses inline, and preview bulk network or IPv4 changes before saving. Switch between light and dark themes from the Workspace menu. [Interface inventory guide](docs/user-guide/04-interface-inventory.md)
+- **Round-trip inventory and share plans.** Export the full inventory as a timestamped CSV, then upload it or paste spreadsheet rows. Review proposed equipment, address, and wiring changes before applying them. Use conditional undo for the latest import. Transfer a complete plan as JSON or export the diagram and table as a PDF, including selected-network reports and a ZIP with one PDF per named network. [Import, export, and sharing guide](docs/user-guide/05-import-export-and-sharing.md)
 
-**Interface inventory.** Sort and filter ports by component, network, IPv4 address, or protocol. Record PROFINET station names and roles, EtherNet/IP device classes, and Modbus TCP settings. In the example below, the two rows for the Cartoner PLC show which port serves each network.
+![Cartoning line interface inventory showing the Cartoner PLC’s PROFINET and Modbus TCP ports on separate networks.](docs/screenshots/cartoning-line-interfaces.png)
 
-![Interface table for the cartoning line. PLC port X1 uses PROFINET on the machine LAN and X2 uses Modbus TCP on line services.](docs/screenshots/cartoning-line-interfaces.png)
-
-**IPv4 planning.** Check addresses against their subnet and flag duplicates within a named network. Two isolated machines can use the same subnet. Configure allocation pools and exclusions, then preview available addresses with **Auto-assign IPv4**.
-
-**Inventory and plan exchange.** From the **Workspace** menu in either view, export the interface inventory as CSV, or import a CSV or pasted spreadsheet and review changes before applying them. Use **Export PDF** for a readable handoff. Editors can also use **Export plan** and **Import plan** to transfer a JSON package between installations. Importing creates a new plan with its components, layout, and links.
-
-To edit inventory in a spreadsheet, start with **Export inventory CSV**. Keep all ten headers when uploading or pasting. You can reorder the columns. If your sheet has ID columns from an older export, export a fresh copy and transfer your edits.
-
-```csv
-Component,Interface,Component type,Network,Network subnet,IPv4,Link partner,Partner port,Connection type,Link protocol
-Cartoner PLC,X1,PLC,Machine LAN,192.0.2.0/24,192.0.2.10,Panel switch,P08,Wired,PROFINET
-Panel switch,P08,Switch,,,,,,,
-```
-
-Names identify components and networks within the plan and interfaces within their component. In this example, the first row refers to the switch port defined in the second. A blank partner port means the link ends at the component. Blank partner cells preserve existing connections.
+![Inventory import preview showing an IPv4 address change before it is applied.](docs/screenshots/cartoning-line-inventory-review.png)
 
 ## Development
 
@@ -75,7 +56,7 @@ The ASP.NET Core API and persistence code live in [src/Nami.Api](src/Nami.Api). 
 
 ### Run with hot reload
 
-From the repository root, start the API in one terminal. Development mode enables the local editor passphrase. On Windows, use PowerShell.
+From the repository root, start the API in one terminal. On Windows, use PowerShell.
 
 ```powershell
 $env:ASPNETCORE_ENVIRONMENT = "Development"
@@ -121,51 +102,23 @@ dotnet build tests/EditorSessionHost
 python3 -B -m unittest discover -s tests -p '*.py'
 ```
 
-## Running a shared instance
-
-Run `./run` on macOS or Linux, or `.\run.ps1` in Windows PowerShell, to start in Production mode. Serve the workspace and `/api` from the same HTTPS origin on the site LAN or VPN. Anyone who can reach the site can browse its plans. To enable editing, set `Editor__Passphrase` in the service environment through your secret store before startup. Leaving it unset gives visitors read-only access.
-
-An unlocked editor can change any plan. Click **Edit mode** in the toolbar to sign out. The session also ends after eight hours without plan API activity. Checking session status alone does not extend it. Run one API process per installation because sessions are held in memory. To rotate the passphrase, change the setting and restart the process. Editors must then unlock again.
-
-### Database setup
-
-Run `./run --setup` on macOS or Linux, or `.\run.ps1 -Setup` in Windows PowerShell. The launcher asks for the provider and target, shows the selection for confirmation, and applies the database migrations. Start or restart NAMI to use the selection.
-
-- **SQLite** accepts a path to an existing NAMI database or to a new file. Relative paths resolve against `src/Nami.Api`. NAMI creates missing parent directories for a new file. The service account needs write access to the directory and database.
-- **PostgreSQL** accepts the host, port, name of an existing database, username, and schema name. The schema defaults to `nami`. The login needs permission to use the schema and create or alter NAMI's tables, plus `CREATE` on the database if the schema needs to be created. If the database requires a password, make a PostgreSQL password file available to both setup and the running service, for example by setting `PGPASSFILE` to its path. A service secret store can also supply credentials to both processes. Setup saves only the connection details.
-
-Setup saves its selection in `src/Nami.Api/data/database-settings.json` after the migrations succeed. Explicit environment variables and command-line database settings take priority. Rerun setup to choose a different target.
-
-### Database and recovery
-
-NAMI creates or upgrades its tables in a transaction at startup. A successful readiness check returns HTTP 200 and `{"status":"ready"}` at `/health`.
-
-| Provider | Service environment | Storage |
-| --- | --- | --- |
-| SQLite (default) | `Database__Provider=SQLite` and optionally `Database__File=/var/lib/nami/nami.db` | Relative paths resolve against the API content root. Choose a persistent directory writable by the service account. |
-| PostgreSQL | `Database__Provider=PostgreSQL` and `ConnectionStrings__Nami='Host=localhost;Database=nami;Username=nami'` | Provision the database and grant the login permission to connect and create or alter tables. Supply authentication through a protected password file or the service secret store. |
-
-Back up before upgrading. For SQLite, use the SQLite shell’s online backup command, for example `sqlite3 /var/lib/nami/nami.db ".backup '/backups/nami.db'"`. Stop NAMI before restoring the snapshot to a fresh file at the configured path. For PostgreSQL, use a managed snapshot or `pg_dump -Fc` and restore with `pg_restore` into an empty database. Restart NAMI and verify both readiness and the expected plans.
-
-To move an individual plan between database targets, export its package from the source installation and import it into the destination.
-
 <details>
 <summary>First-release verification and cross-provider browser tests</summary>
 
-Run the browser suite once for each provider. Start each API with the database settings above, using a fresh SQLite file or empty PostgreSQL database. In a terminal at the repository root, run
+Run the browser suite once for each provider. Start each API with the [database settings in the guide](docs/user-guide/06-installation-and-maintenance.md#configure-a-service-without-prompts), using a fresh SQLite file or empty PostgreSQL database. In a terminal at the repository root, run
 
 ```sh
-ASPNETCORE_ENVIRONMENT=Development Editor__Passphrase='playwright-only editor passphrase' \
+ASPNETCORE_ENVIRONMENT=Development \
   dotnet run --no-build --project src/Nami.Api -- --urls http://127.0.0.1:5081
 ```
 
-Check that `/health` returns `{"status":"ready"}`, then run the browser suite from another terminal. Playwright starts Vite and proxies requests to the API you started.
+Check that `/health` returns `{"status":"ready"}`, then run the browser suite from another terminal. Playwright starts Vite, proxies requests to the API you started, and creates the editor password for the disposable database.
 
 ```sh
 (cd frontend && NAMI_TEST_USE_EXTERNAL_API=1 npm test)
 ```
 
-To verify transfer between providers in Chromium, keep the source API on port 5081. Start a second API on port 5080 with the other provider, its own empty database and the same local test passphrase. In separate terminals, start the destination React app and run the transfer test.
+To verify transfer between providers in Chromium, keep the source API on port 5081. Start a second API on port 5080 with the other provider, its own empty database. In separate terminals, start the destination React app and run the transfer test.
 
 ```sh
 (cd frontend && NAMI_API_ORIGIN=http://127.0.0.1:5080 npm run dev -- --host 127.0.0.1 --port 5173 --strictPort)
@@ -173,13 +126,13 @@ To verify transfer between providers in Chromium, keep the source API on port 50
   npm test -- plan-packages.spec.ts)
 ```
 
-Repeat with fresh databases and the providers reversed. The browser downloads a package from the source, uploads the file through the destination, and reopens the copied plan to check the custom icon, layout, labeled shape, link, and interface data. Keep the test passphrase and disposable databases local.
+Repeat with fresh databases and the providers reversed. The browser downloads a package from the source, uploads the file through the destination, and reopens the copied plan to check the custom icon, layout, labeled shape, link, and interface data. Keep the disposable databases local.
 
 The first-release run on macOS with .NET SDK 10.0.402, Node.js 24.22.0, and PostgreSQL 18.6 passed these checks.
 
 | Check | Result |
 | --- | --- |
-| HTTP integration suite | 37 passed, including schema setup and restart, exact eight-hour expiry and passphrase rotation on persisted plans, stale allocation and import, conditional undo, concurrent SQLite saves during a read, and all four transfer directions. |
+| HTTP integration suite | 37 passed, including schema setup and restart, exact eight-hour expiry and editor credential rotation on persisted plans, stale allocation and import, conditional undo, concurrent SQLite saves during a read, and all four transfer directions. |
 | Chromium with SQLite | 88 passed, with 12 skips for viewport and input combinations assigned to the other project. |
 | Chromium with PostgreSQL | 88 passed, with the same 12 viewport and input skips. |
 | Cross-provider transfer in Chromium | 4 passed, covering both provider directions on desktop and phone. |

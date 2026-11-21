@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test"
-import { editorPassphrase, signOut } from "./workspace-settings"
+import { editorPassword, signOut } from "./workspace-settings"
 
 test("edit independent profiles on one gateway interface and reopen them in either view", async ({
   page,
 }) => {
   const session = await page.request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const created = await page.request.post("/api/plans", {

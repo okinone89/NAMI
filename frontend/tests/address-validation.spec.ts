@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase } from "./workspace-settings"
+import { editorPassword } from "./workspace-settings"
 
 async function openAddressPlan(page: Page) {
   const session = await page.request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const created = await page.request.post("/api/plans", {

@@ -7,7 +7,7 @@ import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
 
-from editor_sessions import PASSPHRASE, SESSION, request, settings_for
+from editor_sessions import PASSWORD, SESSION, create_password, request, settings_for
 from startup import postgres_settings, running_api
 
 
@@ -193,7 +193,13 @@ def seed_legacy_topology(settings, plan):
 
 
 def unlock(address):
-    status, _, headers = request(address, SESSION, "POST", {"passphrase": PASSPHRASE})
+    status, _, headers = request(address, SESSION, "POST", {"password": PASSWORD})
+    if status == 409:
+        status, _, headers = create_password(address)
+        if status == 201:
+            return headers["Set-Cookie"].split(";", 1)[0]
+        if status == 409:
+            status, _, headers = request(address, SESSION, "POST", {"password": PASSWORD})
     if status != 200:
         raise AssertionError(f"Editor unlock failed with HTTP {status}")
     return headers["Set-Cookie"].split(";", 1)[0]

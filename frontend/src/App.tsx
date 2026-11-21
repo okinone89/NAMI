@@ -8,6 +8,7 @@ import {
   IconFolderOpen,
   IconFolderPlus,
   IconHelpCircle,
+  IconKey,
   IconPencil,
   IconPlus,
   IconSun,
@@ -16,8 +17,10 @@ import {
   IconTable,
 } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
+import { EditorPasswordChange } from "@/components/editor-password-change"
+import { EditorPasswordSetup } from "@/components/editor-password-setup"
 import { EditorUnlockDialog, WorkspaceMenu } from "@/components/editor-session"
-import { useEditorSession } from "@/hooks/use-editor-session"
+import { readOnly, useEditorSession } from "@/hooks/use-editor-session"
 import { usePlanWorkspace } from "@/hooks/use-plan-workspace"
 import { PlanNameDialog } from "@/components/plan-name-dialog"
 import { PlanPackageImport } from "@/components/plan-package-controls"
@@ -71,10 +74,60 @@ type ComponentSelection = {
 }
 
 export default function App() {
+  const editorSession = useEditorSession()
+  const [setupCompletedElsewhere, setSetupCompletedElsewhere] = useState(false)
+
+  if (!editorSession.session) {
+    return (
+      <main className="grid min-h-svh place-items-center px-4">
+        {editorSession.checkFailed ? (
+          <div className="flex flex-col items-center gap-4">
+            <p role="alert">Unable to check editor setup.</p>
+            <Button onClick={editorSession.refresh}>Try again</Button>
+          </div>
+        ) : (
+          <p role="status">Loading NAMI…</p>
+        )}
+      </main>
+    )
+  }
+
+  if (editorSession.session.setupRequired) {
+    return (
+      <EditorPasswordSetup
+        onCreated={(session) => {
+          setSetupCompletedElsewhere(false)
+          editorSession.apply(session)
+        }}
+        onAlreadyConfigured={() => {
+          setSetupCompletedElsewhere(true)
+          editorSession.apply(readOnly)
+        }}
+      />
+    )
+  }
+
+  return (
+    <Workspace
+      editorSession={editorSession}
+      setupCompletedElsewhere={setupCompletedElsewhere}
+      dismissSetupNotice={() => setSetupCompletedElsewhere(false)}
+    />
+  )
+}
+
+function Workspace({
+  editorSession,
+  setupCompletedElsewhere,
+  dismissSetupNotice,
+}: {
+  editorSession: ReturnType<typeof useEditorSession>
+  setupCompletedElsewhere: boolean
+  dismissSetupNotice: () => void
+}) {
   const [dark, setDark] = useState(() =>
     document.documentElement.classList.contains("dark")
   )
-  const editorSession = useEditorSession()
   const [automaticIpAssignment, setAutomaticIpAssignment] = useState(() => {
     try {
       return localStorage.getItem(automaticIpKey) === "true"
@@ -124,8 +177,11 @@ export default function App() {
   }
 
   const [workspaceDialog, setWorkspaceDialog] = useState<
-    "unlock" | "unlock-to-create" | "create"
+    "unlock" | "unlock-to-create" | "create" | "change-password"
   >()
+  const [passwordChangeNotice, setPasswordChangeNotice] = useState("")
+  if (!editorSession.canEdit && workspaceDialog === "change-password")
+    setWorkspaceDialog(undefined)
   function startCreatingPlan() {
     setWorkspaceDialog(editorSession.canEdit ? "create" : "unlock-to-create")
   }
@@ -246,6 +302,16 @@ export default function App() {
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
+            {editorSession.canEdit && (
+              <DropdownMenuItem
+                onClick={() => {
+                  setPasswordChangeNotice("")
+                  setWorkspaceDialog("change-password")
+                }}
+              >
+                <IconKey aria-hidden="true" /> Change editor password
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={() => {
                 applyDarkMode(!dark)
@@ -261,6 +327,11 @@ export default function App() {
             </DropdownMenuItem>
           </DropdownMenuGroup>
         </WorkspaceMenu>
+        {passwordChangeNotice && (
+          <p role="status" className="basis-full text-xs">
+            {passwordChangeNotice}
+          </p>
+        )}
         <AddressSaveFeedback
           failure={exportError}
           disabled={exporting}
@@ -491,10 +562,17 @@ export default function App() {
         />
       )}
       {(workspaceDialog === "unlock" ||
-        workspaceDialog === "unlock-to-create") && (
+        workspaceDialog === "unlock-to-create" ||
+        setupCompletedElsewhere) && (
         <EditorUnlockDialog
-          onClose={() => setWorkspaceDialog(undefined)}
+          setupCompletedElsewhere={setupCompletedElsewhere}
+          onClose={() => {
+            dismissSetupNotice()
+            setWorkspaceDialog(undefined)
+          }}
+          onSetupRequired={() => void editorSession.refresh()}
           onUnlocked={(session) => {
+            dismissSetupNotice()
             editorSession.apply(session)
             setWorkspaceDialog(
               workspaceDialog === "unlock-to-create" ? "create" : undefined
@@ -509,6 +587,21 @@ export default function App() {
           action="Create plan"
           onSave={workspace.addPlan}
           onClose={() => setWorkspaceDialog(undefined)}
+        />
+      )}
+      {workspaceDialog === "change-password" && editorSession.canEdit && (
+        <EditorPasswordChange
+          onClose={() => setWorkspaceDialog(undefined)}
+          onChanged={(session) => {
+            editorSession.apply(session)
+            setWorkspaceDialog(undefined)
+            setPasswordChangeNotice("Editor password changed.")
+          }}
+          onSessionLost={() => {
+            setWorkspaceDialog(undefined)
+            setPasswordChangeNotice("Unlock editing again to change the editor password.")
+            void editorSession.refresh()
+          }}
         />
       )}
     </>

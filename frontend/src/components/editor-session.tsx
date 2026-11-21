@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -120,31 +121,37 @@ export function WorkspaceMenu({
 export function EditorUnlockDialog({
   onClose,
   onUnlocked,
+  onSetupRequired,
+  setupCompletedElsewhere,
 }: {
   onClose: () => void
   onUnlocked: (session: EditorSession) => void
+  onSetupRequired: () => void
+  setupCompletedElsewhere: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
 
   async function unlock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const passphrase = new FormData(event.currentTarget).get("passphrase")
+    const password = new FormData(event.currentTarget).get("password")
     setBusy(true)
     setError("")
     try {
       const response = await fetch(sessionUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passphrase }),
+        body: JSON.stringify({ password }),
       })
+      if (response.status === 409) {
+        onSetupRequired()
+        return
+      }
       if (!response.ok) {
         setError(
           response.status === 401
-            ? "Incorrect editor passphrase."
-            : response.status === 503
-              ? "Editing is unavailable on this deployment."
-              : "Unable to unlock editing. Try again."
+            ? "Incorrect editor password."
+            : "Unable to unlock editing. Try again."
         )
         return
       }
@@ -167,16 +174,21 @@ export function EditorUnlockDialog({
       <DialogContent showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Unlock editing</DialogTitle>
+          {setupCompletedElsewhere && (
+            <DialogDescription>
+              Another visitor created the editor password.
+            </DialogDescription>
+          )}
         </DialogHeader>
         <form onSubmit={unlock} className="flex flex-col gap-4">
           <FieldGroup>
             <Field data-invalid={!!error}>
-              <FieldLabel htmlFor="editor-passphrase">
-                Shared editor passphrase
+              <FieldLabel htmlFor="editor-password">
+                Shared editor password
               </FieldLabel>
               <Input
-                id="editor-passphrase"
-                name="passphrase"
+                id="editor-password"
+                name="password"
                 type="password"
                 autoComplete="current-password"
                 required

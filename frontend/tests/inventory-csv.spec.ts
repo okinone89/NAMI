@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { expect, test, type Page } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
-import { editorPassphrase, workspaceAction } from "./workspace-settings"
+import { editorPassword, workspaceAction } from "./workspace-settings"
 
 async function createPlan(page: Page, name: string): Promise<Plan> {
   const created = await page.request.post("/api/plans", { data: { name } })
@@ -17,7 +17,7 @@ async function openImport(page: Page, plan: Plan) {
 
 test.beforeEach(async ({ page }) => {
   const session = await page.request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
 })

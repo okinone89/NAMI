@@ -15,7 +15,8 @@ internal static class Schema
         ALTER TABLE plans ADD COLUMN revision BIGINT NOT NULL DEFAULT 0;
         ALTER TABLE plans ADD COLUMN topology TEXT;
         """,
-        "ALTER TABLE plans ADD COLUMN inventory_undo TEXT"
+        "ALTER TABLE plans ADD COLUMN inventory_undo TEXT",
+        "CREATE TABLE editor_password (id INTEGER PRIMARY KEY CHECK (id = 1), password_hash TEXT NOT NULL)"
     ];
 
     public static void Upgrade(DbConnection database, string? postgresSchema = null)

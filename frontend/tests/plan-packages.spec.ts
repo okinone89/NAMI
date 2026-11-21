@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 import type { Plan } from "../src/lib/plans"
 import {
-  editorPassphrase,
+  editorPassword,
   signOut,
   unlockEditing,
   workspaceAction,
@@ -18,7 +18,7 @@ test("download a plan and reopen an imported copy with its diagram and interface
 }, info) => {
   const name = `Transfer cell ${info.project.name}${destinationOrigin ? " cross-provider" : ""}`
   const session = await page.request.post("/api/editor-session", {
-    data: { passphrase: editorPassphrase },
+    data: { password: editorPassword },
   })
   expect(session.ok()).toBe(true)
   const created = await page.request.post("/api/plans", { data: { name } })

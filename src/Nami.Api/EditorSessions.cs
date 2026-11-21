@@ -1,32 +1,25 @@
 using System.Security.Cryptography;
-using System.Text;
 
-internal sealed class EditorSessions(IConfiguration configuration, TimeProvider timeProvider)
+internal sealed class EditorSessions(TimeProvider timeProvider, EditorPassword password)
 {
     private static readonly TimeSpan IdleTime = TimeSpan.FromHours(8);
-    private readonly byte[]? passphraseDigest = GetDigest(configuration["Editor:Passphrase"]);
-    private readonly Dictionary<string, DateTimeOffset> expiries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Session> active = new(StringComparer.Ordinal);
     private readonly Lock gate = new();
 
-    public bool IsConfigured => passphraseDigest is not null;
-
-    public bool MatchesPassphrase(string? passphrase) =>
-        passphraseDigest is { } expected && GetDigest(passphrase) is { } supplied &&
-        CryptographicOperations.FixedTimeEquals(expected, supplied);
-
-    public (string Token, DateTimeOffset ExpiresAt) Start(string? previousToken)
+    public (string Token, DateTimeOffset ExpiresAt) Start(string? previousToken, string verifiedHash)
     {
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         lock (gate)
         {
             var now = timeProvider.GetUtcNow();
-            foreach (var expired in expiries.Where(session => session.Value <= now).ToArray())
-                expiries.Remove(expired.Key);
+            foreach (var expired in active.Where(entry =>
+                entry.Value.ExpiresAt <= now || !password.IsCurrent(entry.Value.PasswordHash)).ToArray())
+                active.Remove(expired.Key);
             if (previousToken is not null)
-                expiries.Remove(previousToken);
+                active.Remove(previousToken);
 
             var expiresAt = now + IdleTime;
-            expiries.Add(token, expiresAt);
+            active.Add(token, new Session(expiresAt, verifiedHash));
             return (token, expiresAt);
         }
     }
@@ -38,17 +31,20 @@ internal sealed class EditorSessions(IConfiguration configuration, TimeProvider 
 
         lock (gate)
         {
-            if (!expiries.TryGetValue(token, out var expiresAt))
+            if (!active.TryGetValue(token, out var session))
                 return null;
             var now = timeProvider.GetUtcNow();
-            if (expiresAt <= now)
+            if (session.ExpiresAt <= now || !password.IsCurrent(session.PasswordHash))
             {
-                expiries.Remove(token);
+                active.Remove(token);
                 return null;
             }
 
-            if (renew)
-                expiries[token] = expiresAt = now + IdleTime;
+            if (!renew)
+                return session.ExpiresAt;
+
+            var expiresAt = now + IdleTime;
+            active[token] = session with { ExpiresAt = expiresAt };
             return expiresAt;
         }
     }
@@ -59,9 +55,8 @@ internal sealed class EditorSessions(IConfiguration configuration, TimeProvider 
             return;
 
         lock (gate)
-            expiries.Remove(token);
+            active.Remove(token);
     }
 
-    private static byte[]? GetDigest(string? passphrase) =>
-        string.IsNullOrWhiteSpace(passphrase) ? null : SHA256.HashData(Encoding.UTF8.GetBytes(passphrase));
+    private readonly record struct Session(DateTimeOffset ExpiresAt, string PasswordHash);
 }
