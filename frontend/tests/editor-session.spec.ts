@@ -85,6 +85,7 @@ test("a competing setup submission opens the usual password prompt", async ({
 
 test("editors can change the password after confirming both credentials", async ({
   page,
+  hasTouch,
 }) => {
   const replacement = "updated workshop password"
   let submissions = 0
@@ -149,11 +150,49 @@ test("editors can change the password after confirming both credentials", async 
   await current.fill(editorPassword)
   await submit.click()
   await expect(dialog).toBeHidden()
-  await expect(
-    page.getByRole("status").filter({ hasText: "Editor password changed." })
-  ).toBeVisible()
+  const toast = page.getByRole("dialog", { name: "Editor password changed." })
+  await expect(toast).toBeVisible()
+  const closeToast = toast.getByRole("button", { name: "Close notification" })
+  if (hasTouch) await closeToast.tap()
+  else await closeToast.click()
+  await expect(toast).toBeHidden()
   await expect(page.getByRole("button", { name: "Edit mode" })).toBeVisible()
   expect(submissions).toBe(2)
+})
+
+test("the password change toast dismisses itself after ten seconds", async ({
+  page,
+}) => {
+  await page.clock.install()
+  const session = {
+    canEdit: true,
+    setupRequired: false,
+    expiresAt: new Date(Date.now() + 8 * 60 * 60_000).toISOString(),
+  }
+  await page.route("**/api/editor-session", (route) =>
+    route.fulfill({ json: session })
+  )
+  await page.route("**/api/editor-session/password", (route) =>
+    route.fulfill({ json: session })
+  )
+
+  await page.goto("/")
+  await workspaceAction(page, "Change editor password")
+  const dialog = page.getByRole("dialog", { name: "Change editor password" })
+  const replacement = "updated workshop password"
+  await dialog.getByLabel("Current password").fill(editorPassword)
+  await dialog.getByLabel("New password", { exact: true }).fill(replacement)
+  await dialog.getByLabel("Confirm new password").fill(replacement)
+  const now = await page.evaluate(() => Date.now())
+  await page.clock.pauseAt(now + 500)
+  await dialog.getByRole("button", { name: "Change password" }).click()
+
+  const toast = page.getByRole("dialog", { name: "Editor password changed." })
+  await expect(toast).toBeVisible()
+  await page.clock.fastForward(9_999)
+  await expect(toast).toBeVisible()
+  await page.clock.runFor(250)
+  await expect(toast).toBeHidden()
 })
 
 test("describe and run the mode badge actions", async ({ page, hasTouch }) => {

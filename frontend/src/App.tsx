@@ -3,6 +3,8 @@ import { usePlanFilter } from "@/hooks/use-plan-filter"
 import { useState, useMemo } from "react"
 import {
   IconDownload,
+  IconFileCode,
+  IconFileTypeCsv,
   IconFileTypePdf,
   IconUpload,
   IconFolderOpen,
@@ -30,6 +32,7 @@ import { ImportExportHelp } from "@/components/import-export-help"
 import { DiagramView } from "@/components/diagram-view"
 import { InterfaceTable } from "@/components/interface-table"
 import { Dialog } from "@/components/ui/dialog"
+import { toast, Toaster } from "@/components/ui/toast"
 import { AddressSaveFeedback } from "@/components/ipv4-issues"
 import { inventoryPath } from "@/lib/inventory"
 import { applyDarkMode } from "@/lib/theme"
@@ -140,6 +143,10 @@ function Workspace({
     automaticIpAssignment
   )
   const { plans, plan, failed, loading } = workspace
+  const loadedPlan = failed ? undefined : plan
+  const canImportPlan = editorSession.canEdit && !!plans
+  const canImportInventory = editorSession.canEdit && !!loadedPlan
+  const canExportPlan = editorSession.canEdit && !!plan
   const { value: filter, update: updateFilter } = usePlanFilter(plan?.id)
   const networkIds = useMemo(
     () =>
@@ -179,7 +186,8 @@ function Workspace({
   const [workspaceDialog, setWorkspaceDialog] = useState<
     "unlock" | "unlock-to-create" | "create" | "change-password"
   >()
-  const [passwordChangeNotice, setPasswordChangeNotice] = useState("")
+  const [passwordChangeSessionLost, setPasswordChangeSessionLost] =
+    useState(false)
   if (!editorSession.canEdit && workspaceDialog === "change-password")
     setWorkspaceDialog(undefined)
   function startCreatingPlan() {
@@ -268,33 +276,67 @@ function Workspace({
           </DropdownMenuGroup>
           {!!plans?.length && <DropdownMenuSeparator />}
           <DropdownMenuGroup>
-            {plan && !failed && (
-              <>
-                <DropdownMenuItem onClick={() => setFileDialog("pdf")}>
-                  <IconFileTypePdf aria-hidden="true" /> Export PDF
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  render={<a href={`${inventoryPath(plan.id)}.csv`} download />}
-                >
-                  <IconDownload aria-hidden="true" /> Export inventory CSV
-                </DropdownMenuItem>
-                {editorSession.canEdit && (
-                  <DropdownMenuItem onClick={() => setFileDialog("inventory")}>
-                    <IconUpload aria-hidden="true" /> Import inventory
-                  </DropdownMenuItem>
-                )}
-              </>
+            {(canImportInventory || canImportPlan) && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <IconUpload aria-hidden="true" /> Import
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuGroup>
+                    {canImportInventory && (
+                      <DropdownMenuItem
+                        onClick={() => setFileDialog("inventory")}
+                      >
+                        <IconFileTypeCsv aria-hidden="true" /> Inventory CSV
+                      </DropdownMenuItem>
+                    )}
+                    {canImportPlan && (
+                      <DropdownMenuItem
+                        onClick={() => setFileDialog("package")}
+                      >
+                        <IconFileCode aria-hidden="true" /> Plan package
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             )}
-            {editorSession.canEdit && plan && (
-              <DropdownMenuItem disabled={exporting} onClick={downloadPlan}>
-                <IconDownload aria-hidden="true" />{" "}
-                {exporting ? "Exporting…" : "Export plan"}
-              </DropdownMenuItem>
-            )}
-            {editorSession.canEdit && plans && (
-              <DropdownMenuItem onClick={() => setFileDialog("package")}>
-                <IconUpload aria-hidden="true" /> Import plan
-              </DropdownMenuItem>
+            {(loadedPlan || canExportPlan) && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <IconDownload aria-hidden="true" /> Export
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuGroup>
+                    {loadedPlan && (
+                      <>
+                        <DropdownMenuItem onClick={() => setFileDialog("pdf")}>
+                          <IconFileTypePdf aria-hidden="true" /> PDF
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          render={
+                            <a
+                              href={`${inventoryPath(loadedPlan.id)}.csv`}
+                              download
+                            />
+                          }
+                        >
+                          <IconFileTypeCsv aria-hidden="true" /> Inventory CSV
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    {canExportPlan && (
+                      <DropdownMenuItem
+                        disabled={exporting}
+                        onClick={downloadPlan}
+                      >
+                        <IconFileCode aria-hidden="true" />{" "}
+                        {exporting ? "Exporting…" : "Plan package"}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             )}
             <DropdownMenuItem onClick={() => setFileDialog("help")}>
               <IconHelpCircle aria-hidden="true" /> Import/export help
@@ -305,7 +347,7 @@ function Workspace({
             {editorSession.canEdit && (
               <DropdownMenuItem
                 onClick={() => {
-                  setPasswordChangeNotice("")
+                  setPasswordChangeSessionLost(false)
                   setWorkspaceDialog("change-password")
                 }}
               >
@@ -327,9 +369,9 @@ function Workspace({
             </DropdownMenuItem>
           </DropdownMenuGroup>
         </WorkspaceMenu>
-        {passwordChangeNotice && (
+        {passwordChangeSessionLost && (
           <p role="status" className="basis-full text-xs">
-            {passwordChangeNotice}
+            Unlock editing again to change the editor password.
           </p>
         )}
         <AddressSaveFeedback
@@ -595,15 +637,21 @@ function Workspace({
           onChanged={(session) => {
             editorSession.apply(session)
             setWorkspaceDialog(undefined)
-            setPasswordChangeNotice("Editor password changed.")
+            toast.add({
+              id: "editor-password-changed",
+              title: "Editor password changed.",
+              type: "success",
+              timeout: 10_000,
+            })
           }}
           onSessionLost={() => {
             setWorkspaceDialog(undefined)
-            setPasswordChangeNotice("Unlock editing again to change the editor password.")
+            setPasswordChangeSessionLost(true)
             void editorSession.refresh()
           }}
         />
       )}
+      <Toaster />
     </>
   )
 }

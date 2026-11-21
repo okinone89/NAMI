@@ -75,7 +75,7 @@ const csvHeader =
   "Component,Interface,Component type,Network,Network subnet,IPv4,Link partner,Partner port,Connection type,Link protocol"
 
 async function previewRows(page: Page, ...rows: string[]) {
-  await workspaceAction(page, "Import inventory")
+  await workspaceAction(page, "Import", "Inventory CSV")
   const dialog = page.getByRole("dialog", { name: "Import inventory" })
   await dialog
     .getByLabel("Spreadsheet rows")

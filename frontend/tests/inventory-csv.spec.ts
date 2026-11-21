@@ -11,7 +11,7 @@ async function createPlan(page: Page, name: string): Promise<Plan> {
 
 async function openImport(page: Page, plan: Plan) {
   await page.goto(`/?plan=${plan.id}`)
-  await workspaceAction(page, "Import inventory")
+  await workspaceAction(page, "Import", "Inventory CSV")
   return page.getByRole("dialog", { name: "Import inventory" })
 }
 
@@ -58,7 +58,7 @@ test("legacy files and incomplete pasted headers explain where to get the curren
     ),
   })
   await expect(
-    dialog.getByText(/legacy ID headers.*Export inventory CSV/i)
+    dialog.getByText(/legacy ID headers.*Export → Inventory CSV/i)
   ).toBeVisible()
   await expect(
     dialog.getByRole("button", { name: "Preview import" })
@@ -69,7 +69,7 @@ test("legacy files and incomplete pasted headers explain where to get the curren
     .fill("Component,Interface\nController,P1")
   await dialog.getByRole("button", { name: "Load pasted rows" }).click()
   await expect(
-    dialog.getByText(/current headers.*Export inventory CSV/i)
+    dialog.getByText(/current headers.*Export → Inventory CSV/i)
   ).toBeVisible()
   await expect(
     dialog.getByRole("button", { name: "Preview import" })
@@ -108,7 +108,7 @@ test("exported equipment imports into an empty plan and matches reordered pasted
 
   async function exportFile(planName: string) {
     const download = page.waitForEvent("download")
-    await workspaceAction(page, "Export inventory CSV")
+    await workspaceAction(page, "Export", "Inventory CSV")
     const file = await download
     expect(file.suggestedFilename().slice(0, planName.length)).toBe(planName)
     expect(file.suggestedFilename().slice(planName.length)).toMatch(
@@ -132,7 +132,7 @@ test("exported equipment imports into an empty plan and matches reordered pasted
   const receipt = await (
     await page.request.get(path + "/inventory/undo")
   ).json()
-  await workspaceAction(page, "Import inventory")
+  await workspaceAction(page, "Import", "Inventory CSV")
   await dialog.getByLabel("CSV file").setInputFiles(file)
   await dialog.getByRole("button", { name: "Preview import" }).click()
   await expect(
@@ -149,7 +149,7 @@ test("exported equipment imports into an empty plan and matches reordered pasted
     await (await page.request.get(path + "/inventory/undo")).json()
   ).toEqual(receipt)
 
-  await workspaceAction(page, "Import inventory")
+  await workspaceAction(page, "Import", "Inventory CSV")
   await dialog
     .getByLabel("Spreadsheet rows")
     .fill(

@@ -44,9 +44,10 @@ export function ImportExportHelp({ onClose }: { onClose: () => void }) {
               <div className={detailStyle}>
                 <dt className="font-semibold">Prepare the file</dt>
                 <dd>
-                  Start with <strong>Export inventory CSV</strong>. Keep all ten
-                  headers, then upload the edited CSV or paste rows from your
-                  spreadsheet into <strong>Import inventory</strong>.
+                  Start with <strong>Export → Inventory CSV</strong> in the
+                  Workspace menu. Keep all ten headers, then use{" "}
+                  <strong>Import → Inventory CSV</strong> to upload the edited
+                  file or paste rows from your spreadsheet.
                 </dd>
               </div>
               <div className={detailStyle}>
@@ -84,10 +85,10 @@ export function ImportExportHelp({ onClose }: { onClose: () => void }) {
                 JSON plan packages
               </h3>
               <p>
-                Use <strong>Export plan</strong> to transfer the full plan,
-                including layout, networks, colors, and links.{" "}
-                <strong>Import plan</strong> opens an independent copy, even
-                when a plan with the same name already exists.
+                Use <strong>Export → Plan package</strong> to transfer the full
+                plan, including layout, networks, colors, and links.{" "}
+                <strong>Import → Plan package</strong> opens an independent
+                copy, even when a plan with the same name already exists.
               </p>
             </section>
             <section className="flex flex-col gap-2 py-4 sm:pl-5">
@@ -96,8 +97,8 @@ export function ImportExportHelp({ onClose }: { onClose: () => void }) {
                 PDF
               </h3>
               <p>
-                Use <strong>Export PDF</strong> to share a readable copy of the
-                diagram, table, or both.
+                Use <strong>Export → PDF</strong> to share a readable copy of
+                the diagram, table, or both.
               </p>
             </section>
           </div>

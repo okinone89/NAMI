@@ -2,15 +2,15 @@
 
 | Use | Workspace action | Access |
 | --- | --- | --- |
-| Edit inventory or cabling in a spreadsheet | **Export inventory CSV** and **Import inventory** | Export in either mode. Import in **Edit mode**. |
-| Transfer an independent copy of a complete plan | **Export plan** and **Import plan** | **Edit mode**. |
-| Share a readable drawing or address list | **Export PDF** | Either mode. |
+| Edit inventory or cabling in a spreadsheet | **Export → Inventory CSV** and **Import → Inventory CSV** | Export in either mode. Import in **Edit mode**. |
+| Transfer an independent copy of a complete plan | **Export → Plan package** and **Import → Plan package** | **Edit mode**. |
+| Share a readable drawing or address list | **Export → PDF** | Either mode. |
 
 **Workspace → Import/export help** provides a quick reference in either view.
 
 ## Work with the inventory CSV
 
-Choose **Workspace → Export inventory CSV** to download the entire open plan’s inventory. The timestamped file includes interfaces, components without interfaces, component-only connections, and networks without assigned ports. A port may appear on several rows for its different links. A link can appear from both ends.
+Choose **Workspace → Export → Inventory CSV** to download the entire open plan’s inventory. The timestamped file includes interfaces, components without interfaces, component-only connections, and networks without assigned ports. A port may appear on several rows for its different links. A link can appear from both ends.
 
 Keep all ten headers. You can reorder the columns. Start with a fresh export if an older template includes internal IDs.
 
@@ -27,7 +27,7 @@ Panel switch,P01,Switch,Machine LAN,192.0.2.0/24,,Cartoner PLC,X1,Wired,PROFINET
 
 ## Preview, decide, and apply
 
-1. Open the destination plan and choose **Workspace → Import inventory**. Select a **CSV file**, or paste spreadsheet rows including the headers and choose **Load pasted rows**. Choose **Preview import**.
+1. Open the destination plan and choose **Workspace → Import → Inventory CSV**. Select a **CSV file**, or paste spreadsheet rows including the headers and choose **Load pasted rows**. Choose **Preview import**.
 2. Clean changes go straight to **Import summary**. If the wizard asks for decisions, review related rows and choose the intended interpretation. For example, an unfamiliar name could mean new equipment or a rename. A changed partner could mean adding a connection or changing an installed one. Use **Correct values**, **Skip affected rows**, or **Skip connection** as appropriate. You can keep an address conflict flagged when offered. Choose **Next**, or use **Back** to revisit a decision.
 3. In **Import summary**, expand **Connection changes** and **Review rows** where shown. Compare the before and after values and review skipped rows or connections. Use **Remove connection** on an installed link only when you intend to remove it. Choose **Apply import** to commit or **Cancel** to leave the plan as it is. A **No changes** result can be closed.
 4. If the plan changes during review, review the refreshed preview and resolve any new decisions before applying again.
@@ -37,15 +37,15 @@ Panel switch,P01,Switch,Machine LAN,192.0.2.0/24,,Cartoner PLC,X1,Wired,PROFINET
 
 ## Transfer a complete plan
 
-1. In the source workspace, unlock editing, open the plan, and choose **Workspace → Export plan** to download its JSON package.
-2. In the destination workspace, unlock editing and choose **Workspace → Import plan**. Choose the `.nami.json` file under **Plan package**, then select **Import plan**.
+1. In the source workspace, unlock editing, open the plan, and choose **Workspace → Export → Plan package** to download its JSON package.
+2. In the destination workspace, unlock editing and choose **Workspace → Import → Plan package**. Choose the `.nami.json` file under **Plan package**, then select **Import plan**.
 3. NAMI opens an independent copy, even if the name is already present. Review the destination’s equipment, interfaces and profiles, networks, links, layout, and VM hosting. Use **Workspace → Edit plan** to give the copy a distinct name.
 
 This works across SQLite and PostgreSQL installations. To protect every plan in an installation, use a [database backup](06-installation-and-maintenance.md#back-up-and-restore).
 
 ## Create a handoff report
 
-Choose **Workspace → Export PDF**. Set **Include** to **Diagram**, **Table**, or **Diagram and table**, then select a scope.
+Choose **Workspace → Export → PDF**. Set **Include** to **Diagram**, **Table**, or **Diagram and table**, then select a scope.
 
 - **Current filters** uses the plan’s current network and search filters.
 - **Whole plan** includes unassigned inventory.

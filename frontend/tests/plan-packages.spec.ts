@@ -86,7 +86,7 @@ test("download a plan and reopen an imported copy with its diagram and interface
 
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    workspaceAction(page, "Export plan"),
+    workspaceAction(page, "Export", "Plan package"),
   ])
   expect(download.suggestedFilename()).toMatch(/\.nami\.json$/)
   const file = info.outputPath("plan.nami.json")
@@ -107,7 +107,7 @@ test("download a plan and reopen an imported copy with its diagram and interface
     existingId = selectedId()
     expect(existingId).not.toBe(original.id)
   }
-  await workspaceAction(page, "Import plan")
+  await workspaceAction(page, "Import", "Plan package")
   const dialog = page.getByRole("dialog", { name: "Import plan" })
   const packageInput = dialog.getByLabel("Plan package")
   const importButton = dialog.getByRole("button", { name: "Import plan" })
@@ -166,14 +166,27 @@ test("download a plan and reopen an imported copy with its diagram and interface
   ).toBeVisible()
   await page.getByRole("button", { name: "Workspace", exact: true }).click()
   const menu = page.getByRole("menu", { name: "Workspace", exact: true })
-  await expect(menu.getByRole("menuitem", { name: "Export PDF" })).toBeVisible()
-  await expect(page.getByRole("menuitem", { name: "Export plan" })).toHaveCount(
-    0
-  )
-  await expect(page.getByRole("menuitem", { name: "Import plan" })).toHaveCount(
-    0
-  )
-  await menu.press("Escape")
+  await expect(
+    menu.getByRole("menuitem", { name: "Import", exact: true })
+  ).toHaveCount(0)
+  const exportTrigger = menu.getByRole("menuitem", {
+    name: "Export",
+    exact: true,
+  })
+  await exportTrigger.press("ArrowRight")
+  const exportMenu = page.getByRole("menu", { name: "Export", exact: true })
+  await expect(
+    exportMenu.getByRole("menuitem", { name: "PDF", exact: true })
+  ).toBeFocused()
+  await expect(
+    exportMenu.getByRole("menuitem", { name: "Inventory CSV", exact: true })
+  ).toBeVisible()
+  await expect(
+    exportMenu.getByRole("menuitem", { name: "Plan package", exact: true })
+  ).toHaveCount(0)
+  await page.keyboard.press("Escape")
+  await expect(exportTrigger).toBeFocused()
+  await page.keyboard.press("Escape")
   await expect(menu).toBeHidden()
 
   await page.getByRole("button", { name: "Table", exact: true }).click()

@@ -27,6 +27,6 @@ The default database is `src/Nami.Api/data/nami.db`. To change the port or datab
 2. Choose **Add network**. Name it `Machine LAN`, set **IPv4 network address** to `192.0.2.0` and **Subnet mask** to `255.255.255.0`, and select **Save network**. The network tile displays `192.0.2.0/24`.
 3. From **Diagram**, choose **Add → Add component**. Name it `Cartoner PLC` and set its type to `PLC`. Choose **Add interface**, name the interface `X1`, pick **Machine LAN**, enter `192.0.2.10`, and select **Save component**. Repeat for `Operator panel` of type `HMI` with interface `LAN` and address `192.0.2.20`.
 4. Choose **Add → Add link**. Select the PLC and its X1 interface as the source and the operator panel and its LAN interface as the target. Choose **Wired** under **Medium**, optionally enter a link protocol, then select **Save link**. Drag the components apart if you want to change the layout.
-5. Switch to **Table** and search for `192.0.2.10`. Clear the search to see both rows. To share the plan, choose **Workspace → Export PDF**, set **Include** to **Diagram and table** and **Export scope** to **Whole plan**, then select **Download PDF**.
+5. Switch to **Table** and search for `192.0.2.10`. Clear the search to see both rows. To share the plan, choose **Workspace → Export → PDF**, set **Include** to **Diagram and table** and **Export scope** to **Whole plan**, then select **Download PDF**.
 
 The rest of the guide uses an expanded version of this plan.

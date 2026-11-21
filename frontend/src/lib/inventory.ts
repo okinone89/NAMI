@@ -269,7 +269,7 @@ export function parseInventory(input: string): Spreadsheet {
     )
   ) {
     throw new Error(
-      "This file contains legacy ID headers. Choose Export inventory CSV to obtain the current format."
+      "This file contains legacy ID headers. Choose Workspace → Export → Inventory CSV to obtain the current format."
     )
   }
   const headings = header?.cells.map((heading) => heading.trim()) ?? []
@@ -278,7 +278,7 @@ export function parseInventory(input: string): Spreadsheet {
     !inventoryCsvFields.every((field) => headings.includes(field.label))
   ) {
     throw new Error(
-      "Use all ten current headers exactly once. Choose Export inventory CSV to obtain the current format."
+      "Use all ten current headers exactly once. Choose Workspace → Export → Inventory CSV to obtain the current format."
     )
   }
   if (

@@ -1,9 +1,11 @@
 import { expect, type Page } from "@playwright/test"
 export const editorPassword = "playwright-only editor password"
 
-export async function workspaceAction(page: Page, name: string) {
+export async function workspaceAction(page: Page, ...items: string[]) {
   await page.getByRole("button", { name: "Workspace", exact: true }).click()
-  await page.getByRole("menuitem", { name, exact: true }).click()
+  for (const name of items) {
+    await page.getByRole("menuitem", { name, exact: true }).click()
+  }
 }
 
 export async function unlockEditing(page: Page) {
