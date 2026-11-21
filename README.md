@@ -21,7 +21,9 @@ cd NAMI
 | Start in production mode | `./run` | `.\run.ps1` |
 | Choose and prepare a database | `./run --setup` | `.\run.ps1 -Setup` |
 
-The launcher builds the frontend and serves it with the API. Open [NAMI on localhost](http://127.0.0.1:5080). On the first visit, create and confirm a shared editor password to enter Edit mode. Choose **Workspace → New plan** to start. See the [first-plan walkthrough](docs/user-guide/01-get-started.md#build-your-first-plan) for a worked example.
+The launcher builds the frontend and serves it with the API. For local production mode, it sets up the HTTPS certificate if needed. Approve the certificate trust prompt if it appears, then open [https://localhost:5080](https://localhost:5080). Development mode opens at [http://127.0.0.1:5080](http://127.0.0.1:5080).
+
+On the first visit, create and confirm a shared editor password to enter Edit mode. Choose **Workspace → New plan** to start. See the [first-plan walkthrough](docs/user-guide/01-get-started.md#build-your-first-plan) for a worked example.
 
 SQLite is the default and saves plans to `src/Nami.Api/data/nami.db`. The interactive setup supports another SQLite file or a PostgreSQL database and saves its settings after migrations succeed. Restart NAMI to use the saved target. For shared hosting, editor configuration, readiness, and backups, see [installation and maintenance](docs/user-guide/06-installation-and-maintenance.md).
 

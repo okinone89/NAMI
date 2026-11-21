@@ -9,7 +9,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if ($Setup -and $ResetEditorPassword) { throw 'Choose either -Setup or -ResetEditorPassword.' }
-if (-not $Urls) { $Urls = 'http://127.0.0.1:5080' }
 $environment = if ($Dev) { 'Development' } else { 'Production' }
 $configuration = if ($Dev) { 'Debug' } else { 'Release' }
 $previousAspNetEnvironment = $env:ASPNETCORE_ENVIRONMENT
@@ -39,7 +38,14 @@ try {
     & $npm --prefix frontend run build -- --outDir ../src/Nami.Api/wwwroot --emptyOutDir
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    & dotnet run --project src/Nami.Api --configuration $configuration --no-launch-profile -- --urls $Urls
+    [string[]]$listenerArgs = if ($Urls) {
+        @('--urls', $Urls)
+    } elseif ($Dev) {
+        @('--urls', 'http://127.0.0.1:5080')
+    } else {
+        @('--local-https')
+    }
+    & dotnet run --project src/Nami.Api --configuration $configuration --no-launch-profile -- @listenerArgs
     exit $LASTEXITCODE
 }
 finally {

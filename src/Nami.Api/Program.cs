@@ -7,14 +7,21 @@ if (args is ["--setup", ..])
 if (args is ["--reset-editor-password", ..])
     return EditorPassword.Reset(args[1..]);
 
-NamiApplication.Build(args).Run();
+var localHttps = args is ["--local-https", ..];
+var builder = NamiApplication.CreateBuilder(localHttps ? args[1..] : args);
+if (localHttps && !LocalHttps.Configure(builder.Configuration))
+    return 1;
+
+NamiApplication.Build(builder).Run();
 return 0;
 
 internal static class NamiApplication
 {
-    public static WebApplication Build(string[] args, TimeProvider? timeProvider = null)
+    public static WebApplication Build(string[] args, TimeProvider? timeProvider = null) =>
+        Build(CreateBuilder(args), timeProvider);
+
+    public static WebApplication Build(WebApplicationBuilder builder, TimeProvider? timeProvider = null)
     {
-        var builder = CreateBuilder(args);
         using (var database = Database.Open(builder.Configuration, builder.Environment.ContentRootPath))
         {
             Schema.Upgrade(database);

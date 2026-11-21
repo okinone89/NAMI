@@ -17,5 +17,11 @@ if [ ! -x frontend/node_modules/.bin/vite ] || [ frontend/package-lock.json -nt 
   npm --prefix frontend ci
 fi
 npm --prefix frontend run build -- --outDir ../src/Nami.Api/wwwroot --emptyOutDir
-export ASPNETCORE_URLS="${ASPNETCORE_URLS:-http://127.0.0.1:5080}"
+if [ -z "${ASPNETCORE_URLS:-}" ]; then
+  if [ "$ASPNETCORE_ENVIRONMENT" = Development ]; then
+    export ASPNETCORE_URLS=http://127.0.0.1:5080
+  else
+    set -- --local-https "$@"
+  fi
+fi
 exec dotnet run --project src/Nami.Api --no-launch-profile -- "$@"

@@ -11,7 +11,7 @@ cd NAMI
 
 Run `./run --dev` on macOS or Linux, or `.\run.ps1 -Dev` in Windows PowerShell. The launcher prepares the frontend and starts NAMI. Open [http://127.0.0.1:5080](http://127.0.0.1:5080). On the first visit, create and confirm a shared editor password to open the workspace in **Edit mode**. A new database shows **No plans yet**. Stop NAMI with Ctrl+C.
 
-The default database is `src/Nami.Api/data/nami.db`. To change the port or database, see [Run and maintain an installation](06-installation-and-maintenance.md).
+The default database is `src/Nami.Api/data/nami.db`. To share a production instance over HTTPS, follow [Publish NAMI with nginx](06-installation-and-maintenance.md#publish-nami-with-nginx). See [Run and maintain an installation](06-installation-and-maintenance.md) for database and listener settings.
 
 ## Browse or edit
 
