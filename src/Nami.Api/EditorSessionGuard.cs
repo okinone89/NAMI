@@ -1,4 +1,4 @@
-internal sealed class EditorSessionGuard(RequestDelegate next, IHostEnvironment environment)
+internal sealed class EditorSessionGuard(RequestDelegate next, EditorSessionCookie cookie)
 {
     public async Task InvokeAsync(HttpContext context, EditorSessions sessions)
     {
@@ -21,7 +21,7 @@ internal sealed class EditorSessionGuard(RequestDelegate next, IHostEnvironment 
         bool requiresEditor = !isRead || endpoint.Metadata.GetMetadata<RequireEditorSession>() is not null;
         if (!sessionEndpoint && (requiresEditor || context.Request.Path.StartsWithSegments("/api")))
         {
-            var token = context.Request.Cookies[EditorSessionEndpoints.CookieName(environment)];
+            var token = context.Request.Cookies[cookie.Name(context.Request)];
             var expiresAt = sessions.GetExpiry(token, renew: true);
             if (requiresEditor && !expiresAt.HasValue)
             {

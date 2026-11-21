@@ -147,6 +147,11 @@ export function EditorUnlockDialog({
         onSetupRequired()
         return
       }
+      if (response.status === 400) {
+        const problem = await response.json()
+        setError(problem.title)
+        return
+      }
       if (!response.ok) {
         setError(
           response.status === 401

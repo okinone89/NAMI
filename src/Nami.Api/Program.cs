@@ -24,6 +24,7 @@ internal static class NamiApplication
 
         builder.Services.AddSingleton(timeProvider ?? TimeProvider.System);
         builder.Services.AddSingleton<EditorSessions>();
+        builder.Services.AddSingleton<EditorSessionCookie>();
         builder.Services.AddSingleton(new PlanStore(builder.Configuration, builder.Environment.ContentRootPath));
         builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(
             new JsonStringEnumConverter<LinkMedium>(JsonNamingPolicy.CamelCase, allowIntegerValues: false)));

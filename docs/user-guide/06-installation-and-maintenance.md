@@ -6,6 +6,8 @@ From the repository root, run `./run` on macOS or Linux, or `.\run.ps1` in Windo
 
 For a shared instance, serve the workspace and its `/api` routes on the same HTTPS origin on the site LAN or VPN. Production editing uses a secure session cookie, so open the HTTPS URL when editing. After password setup, anyone who can reach the site can browse all plans. An unlocked editor can change any plan.
 
+For an HTTP-only installation, set `EditorSession__AllowInsecureHttp=true` in the API service environment and restart NAMI. Use this only on a trusted, isolated network. HTTP exposes the editor password and session cookie to anyone who can monitor the connection.
+
 Run one API process per installation because it holds editor sessions in memory. The eight-hour idle timer is tied to plan API activity. A restart ends active editor sessions.
 
 ## Set or reset the editor password

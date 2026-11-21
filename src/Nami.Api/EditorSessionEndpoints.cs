@@ -6,29 +6,35 @@ internal static class EditorSessionEndpoints
 
     public static void MapEditorSession(this WebApplication app)
     {
-        app.MapGet(Path, (HttpContext context, EditorSessions sessions, EditorPassword password) =>
+        app.MapGet(Path, (HttpContext context, EditorSessions sessions, EditorPassword password, EditorSessionCookie cookie) =>
         {
             context.Response.Headers.CacheControl = "no-store";
-            var expiresAt = sessions.GetExpiry(context.Request.Cookies[CookieName(app.Environment)]);
+            var expiresAt = sessions.GetExpiry(context.Request.Cookies[cookie.Name(context.Request)]);
             return TypedResults.Ok(new EditorSessionResponse(expiresAt.HasValue, expiresAt, !password.IsConfigured));
         }).WithMetadata(new EditorSessionEndpoint()).WithSummary("Check the current editor session");
 
         app.MapPost(Path, Results<Ok<EditorSessionResponse>, ProblemHttpResult> (
-            UnlockEditingRequest request, HttpContext context, EditorSessions sessions, EditorPassword password) =>
+            UnlockEditingRequest request, HttpContext context, EditorSessions sessions, EditorPassword password,
+            EditorSessionCookie cookie) =>
         {
             context.Response.Headers.CacheControl = "no-store";
+            if (cookie.RequiresHttps(context.Request))
+                return HttpsRequired();
             if (!password.IsConfigured)
                 return TypedResults.Problem(statusCode: 409, title: "Create the editor password first");
             if (password.Verify(request.Password) is not { } verifiedHash)
                 return TypedResults.Problem(statusCode: 401, title: "Incorrect editor password");
 
-            return TypedResults.Ok(StartSession(context, sessions, app.Environment, verifiedHash));
+            return TypedResults.Ok(StartSession(context, sessions, cookie, verifiedHash));
         }).WithMetadata(new EditorSessionEndpoint()).WithSummary("Unlock editing across plans");
 
         app.MapPost(Path + "/setup", Results<Created<EditorSessionResponse>, ProblemHttpResult> (
-            CreateEditorPasswordRequest request, HttpContext context, EditorSessions sessions, EditorPassword password) =>
+            CreateEditorPasswordRequest request, HttpContext context, EditorSessions sessions, EditorPassword password,
+            EditorSessionCookie cookie) =>
         {
             context.Response.Headers.CacheControl = "no-store";
+            if (cookie.RequiresHttps(context.Request))
+                return HttpsRequired();
             if (password.IsConfigured)
                 return TypedResults.Problem(statusCode: 409, title: "The editor password is already set");
             var supplied = request.Password ?? string.Empty;
@@ -37,11 +43,12 @@ internal static class EditorSessionEndpoints
             if (password.TryCreate(supplied) is not { } createdHash)
                 return TypedResults.Problem(statusCode: 409, title: "The editor password is already set");
 
-            return TypedResults.Created(Path, StartSession(context, sessions, app.Environment, createdHash));
+            return TypedResults.Created(Path, StartSession(context, sessions, cookie, createdHash));
         }).WithMetadata(new EditorSessionEndpoint()).WithSummary("Create the initial editor password and unlock editing");
 
         app.MapPut(Path + "/password", Results<Ok<EditorSessionResponse>, ProblemHttpResult> (
-            ChangeEditorPasswordRequest request, HttpContext context, EditorSessions sessions, EditorPassword password) =>
+            ChangeEditorPasswordRequest request, HttpContext context, EditorSessions sessions, EditorPassword password,
+            EditorSessionCookie cookie) =>
         {
             context.Response.Headers.CacheControl = "no-store";
             var replacement = request.NewPassword ?? string.Empty;
@@ -51,20 +58,20 @@ internal static class EditorSessionEndpoints
                 return TypedResults.Problem(statusCode: 403, title: "Incorrect current password.");
             if (replacement == request.CurrentPassword)
                 return TypedResults.Problem(statusCode: 400, title: "Choose a password different from the current password.");
-            if (sessions.GetExpiry(context.Request.Cookies[CookieName(app.Environment)]) is null)
+            if (sessions.GetExpiry(context.Request.Cookies[cookie.Name(context.Request)]) is null)
                 return TypedResults.Problem(statusCode: 401, title: "Unlock editing to change the editor password.");
             if (password.TryChange(verifiedHash, replacement) is not { } changedHash)
                 return TypedResults.Problem(statusCode: 409, title: "The editor password has changed. Unlock editing and try again.");
 
-            return TypedResults.Ok(StartSession(context, sessions, app.Environment, changedHash));
+            return TypedResults.Ok(StartSession(context, sessions, cookie, changedHash));
         }).WithSummary("Change the shared editor password using the current password");
 
-        app.MapDelete(Path, (HttpContext context, EditorSessions sessions) =>
+        app.MapDelete(Path, (HttpContext context, EditorSessions sessions, EditorSessionCookie cookie) =>
         {
             context.Response.Headers.CacheControl = "no-store";
-            var cookieName = CookieName(app.Environment);
+            var cookieName = cookie.Name(context.Request);
             sessions.Revoke(context.Request.Cookies[cookieName]);
-            context.Response.Cookies.Delete(cookieName, CookieOptions(app.Environment));
+            context.Response.Cookies.Delete(cookieName, cookie.Options(context.Request));
             return TypedResults.NoContent();
         }).WithMetadata(new EditorSessionEndpoint()).WithSummary("Sign out of the editor session");
     }
@@ -79,25 +86,17 @@ internal static class EditorSessionEndpoints
         return null;
     }
 
-    private static EditorSessionResponse StartSession(HttpContext context, EditorSessions sessions, IHostEnvironment environment,
+    private static ProblemHttpResult HttpsRequired() =>
+        TypedResults.Problem(statusCode: 400, title: "Open NAMI using its HTTPS address to unlock editing.");
+
+    private static EditorSessionResponse StartSession(HttpContext context, EditorSessions sessions, EditorSessionCookie cookie,
         string verifiedHash)
     {
-        var cookieName = CookieName(environment);
+        var cookieName = cookie.Name(context.Request);
         var session = sessions.Start(context.Request.Cookies[cookieName], verifiedHash);
-        context.Response.Cookies.Append(cookieName, session.Token, CookieOptions(environment));
+        context.Response.Cookies.Append(cookieName, session.Token, cookie.Options(context.Request));
         return new EditorSessionResponse(true, session.ExpiresAt, SetupRequired: false);
     }
-
-    internal static string CookieName(IHostEnvironment environment) =>
-        environment.IsDevelopment() ? "nami-editor-dev" : "__Host-nami-editor";
-
-    private static CookieOptions CookieOptions(IHostEnvironment environment) => new()
-    {
-        HttpOnly = true,
-        Secure = !environment.IsDevelopment(),
-        SameSite = SameSiteMode.Strict,
-        Path = "/"
-    };
 }
 
 /// <summary>The shared editor password provided by the visitor.</summary>

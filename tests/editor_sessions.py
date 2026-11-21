@@ -134,6 +134,68 @@ class EditorSessions(unittest.TestCase):
                 ))
                 self.assertEqual(request(address, SESSION, cookie=cookie)[:2], (200, session))
 
+    def test_production_requires_https_for_browser_sign_in_by_default(self):
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            with running_api(directory, settings_for(directory)) as address:
+                browser = {"Origin": "http://nami.test", "Sec-Fetch-Site": "same-origin"}
+                password = {"password": PASSWORD}
+                setup = {**password, "confirmation": PASSWORD}
+                status, problem, headers = request(address, SETUP, "POST", setup, headers=browser)
+                self.assertEqual(status, 400)
+                self.assertIn("HTTPS", problem["title"])
+                self.assertIsNone(headers.get("Set-Cookie"))
+                self.assertEqual(request(address, SESSION)[:2], (200, SETUP_REQUIRED))
+
+                https_proxy = {**browser, "Origin": "https://nami.test"}
+                status, _, headers = request(address, SETUP, "POST", setup, headers=https_proxy)
+                self.assertEqual(status, 201)
+                self.assertTrue(headers["Set-Cookie"].startswith("__Host-nami-editor="))
+                self.assertIn("; secure", headers["Set-Cookie"].lower())
+
+                status, problem, headers = request(address, SESSION, "POST", password, headers=browser)
+                self.assertEqual(status, 400)
+                self.assertIn("HTTPS", problem["title"])
+                self.assertIsNone(headers.get("Set-Cookie"))
+
+    def test_production_http_session_can_edit_when_explicitly_enabled(self):
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            settings = {**settings_for(directory), "EditorSession__AllowInsecureHttp": "true"}
+            browser = {"Origin": "http://nami.test", "Sec-Fetch-Site": "same-origin"}
+            with running_api(directory, settings) as address:
+                status, _, headers = request(address, SETUP, "POST", {
+                    "password": PASSWORD, "confirmation": PASSWORD,
+                }, headers=browser)
+                self.assertEqual(status, 201)
+                cookie, *options = headers["Set-Cookie"].split("; ")
+                attributes = {option.lower() for option in options}
+                self.assertTrue(cookie.startswith("nami-editor-http="))
+                self.assertNotIn("secure", attributes)
+                self.assertIn("httponly", attributes)
+                self.assertIn("samesite=strict", attributes)
+                self.assertEqual(request(address, "/api/plans", "POST", {"name": "Filler"},
+                                         cookie, browser)[0], 201)
+
+                status, _, headers = change_password(address, PASSWORD, "replacement workshop phrase", cookie)
+                self.assertEqual(status, 200)
+                self.assertEqual(request(address, SESSION, cookie=cookie)[:2], (200, READ_ONLY))
+                replacement_cookie = headers["Set-Cookie"].split(";", 1)[0]
+                self.assertTrue(request(address, SESSION, cookie=replacement_cookie)[1]["canEdit"])
+
+                status, _, headers = request(address, SESSION, "DELETE", cookie=replacement_cookie, headers=browser)
+                self.assertEqual(status, 204)
+                self.assertTrue(headers["Set-Cookie"].startswith("nami-editor-http="))
+                self.assertIn("expires=", headers["Set-Cookie"])
+                self.assertEqual(request(address, SESSION, cookie=replacement_cookie)[:2], (200, READ_ONLY))
+
+                status, session, headers = request(address, SESSION, "POST", {
+                    "password": "replacement workshop phrase",
+                }, headers=browser)
+                self.assertEqual(status, 200)
+                self.assertTrue(session["canEdit"])
+                self.assertTrue(headers["Set-Cookie"].startswith("nami-editor-http="))
+
     def test_changing_password_requires_current_password_and_replaces_it_on_restart(self):
         replacement = "updated workshop password"
         for provider in ("SQLite", "PostgreSQL"):
